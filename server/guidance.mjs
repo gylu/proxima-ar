@@ -111,7 +111,7 @@ export function serviceError(status, details) {
   );
 }
 
-export function parseTurn(envelope, frame) {
+export function parseTurn(envelope, frame, vision) {
   if (envelope?.status === 'failed' || envelope?.error) {
     throw serviceError(502, JSON.stringify(envelope.error || {}));
   }
@@ -141,6 +141,16 @@ export function parseTurn(envelope, frame) {
   let target = null;
   if (known) {
     target = known;
+  } else if (vision) {
+    const point = vision.point;
+    if (
+      frame.inputMode !== 'anchors' &&
+      result.target_id == null &&
+      point &&
+      typeof result.label === 'string' &&
+      result.label.trim().toLowerCase() === point.label.toLowerCase()
+    )
+      target = { id: null, ...point };
   } else if (
     frame.inputMode !== 'anchors' &&
     result.target_id == null &&

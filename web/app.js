@@ -68,6 +68,7 @@ function setReading(source, title, description, issue = false, glyph = 'book-ope
   $('reading').hidden = false;
   $('answer-sources').replaceChildren();
   $('answer-sources').hidden = true;
+  $('image-context').hidden = true;
   $('reading-source').replaceChildren(icon(glyph), node('span', source));
   $('reading-heading').textContent = title;
   $('reading-text').textContent = description;
@@ -107,6 +108,12 @@ function showAnswer(result) {
       ? name + ' · fallback for ' + modelName(result.provider, result.requestedModel)
       : name + ' · live answer';
   setReading(byline, result.target?.label || 'Answer', result.answer, false, 'scan-eye');
+  if (result.imageContext) {
+    $('image-context').textContent = result.imageContext.model
+      ? 'Photo described by ' + modelName(result.provider, result.imageContext.model)
+      : 'Answered from text context only';
+    $('image-context').hidden = false;
+  }
   const sources = result.sources || [];
   if (sources.length) {
     const box = $('answer-sources');

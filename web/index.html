@@ -140,6 +140,7 @@
                 Connect your first monitor to HDMI0, the micro-HDMI socket closest to the USB-C power port.
               </p>
               <div id="answer-sources" class="answer-sources" hidden></div>
+              <small id="image-context" hidden></small>
               <span class="latency" id="latency" hidden></span>
               <button class="text-btn adjust" id="adjust-btn" type="button" hidden>Reposition anchor</button>
             </div>
@@ -185,10 +186,10 @@
                 <p id="key-hint" class="wide">The project key is available for Cerebras.</p>
                 <div class="wide" id="fallback-setting">
                   <label class="fallback-toggle">
-                    <input id="allow-fallback" type="checkbox" aria-describedby="fallback-hint" autocomplete="off" />
+                    <input id="allow-fallback" type="checkbox" aria-describedby="fallback-hint" autocomplete="off" checked />
                     <span>Allow another Cerebras model if this one is unavailable</span>
                   </label>
-                  <p id="fallback-hint">Try up to two compatible models with the same key and frame.</p>
+                  <p id="fallback-hint">GPT-OSS 120B is the first backup. For photos, a vision model describes the frame for it.</p>
                 </div>
               </div>
             </details>

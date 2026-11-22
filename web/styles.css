@@ -599,6 +599,12 @@ nav {
   color: var(--green);
   letter-spacing: 0;
 }
+#image-context {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
 .prompts {
   margin-top: auto;
 }

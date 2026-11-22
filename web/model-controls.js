@@ -1,4 +1,4 @@
-import { providers, modelName } from './models.js';
+import { providers, modelName, gptOssModel } from './models.js';
 
 const $ = (id) => document.getElementById(id);
 export function setupModels(onChange) {
@@ -7,7 +7,7 @@ export function setupModels(onChange) {
   const custom = $('custom-model'),
     key = $('provider-key');
   const fallback = $('allow-fallback');
-  fallback.checked = false;
+  fallback.checked = fallback.defaultChecked;
   const settings = new Map();
   for (const [id, entry] of Object.entries(providers)) {
     providerSelect.add(new Option(entry.name, id));
@@ -32,6 +32,10 @@ export function setupModels(onChange) {
     $('active-model-pill').textContent = name;
     $('custom-model-field').hidden = modelSelect.value !== 'custom';
     $('fallback-setting').hidden = provider !== 'cerebras';
+    $('fallback-hint').textContent =
+      model === gptOssModel
+        ? 'When enabled, a vision model describes photos for GPT-OSS 120B. You can also ask using text and anchors alone.'
+        : 'GPT-OSS 120B is the first backup. For photos, a vision model describes the frame for it.';
     $('provider-key-label').textContent =
       providers[provider].name + ' API key' + (provider === 'cerebras' ? ' (optional)' : '');
     key.placeholder = provider === 'cerebras' ? 'Use the project key' : 'Paste your provider key';
@@ -65,12 +69,10 @@ export function setupModels(onChange) {
   });
   key.addEventListener('input', () => {
     settings.get(providerSelect.value).apiKey = key.value;
-    if (providerSelect.value === 'cerebras') fallback.checked = false;
   });
   window.addEventListener('pagehide', () => {
     for (const entry of settings.values()) entry.apiKey = '';
     key.value = '';
-    fallback.checked = false;
   });
   loadProvider();
   return {

@@ -35,6 +35,7 @@ export function createGuide({ runGateway, search = findManual }) {
       parseTurn(
         await runGateway(buildTurn(frame, { references: refs, lookupStatus: status }), signal, inference),
         frame,
+        inference?.vision,
       );
     let result = await turn('allowed');
     let lookupStatus = 'direct';

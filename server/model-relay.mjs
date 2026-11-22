@@ -83,9 +83,11 @@ export async function startRelay(infer = queryWithFallback) {
       }
       turn.claimed = true;
       const signal = AbortSignal.any([turn.signal, disconnected.signal]);
-      const result = await infer(turn.inference.route, messages, signal, turn.inference.progress);
+      const result = await infer(turn.inference.route, messages, signal, turn.inference.progress, {
+        question: turn.inference.question,
+      });
       turn.inference.answerModel = result.model;
-      turn.inference.calls.push(result.metrics);
+      turn.inference.vision = result.vision;
       completion(res, result.text, result.metrics);
     } catch (error) {
       if (!turn) {

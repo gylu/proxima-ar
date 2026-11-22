@@ -126,7 +126,21 @@ export function requestActivity() {
     if (phase === 'fallback') {
       const name = modelName(detail.provider, detail.model);
       label = name + ' · ' + providers[detail.provider].name + ' (fallback)';
-      line('Trying ' + name + ' with the same key and input.');
+      line('Switching to ' + name + ' for the answer using the same Cerebras key.');
+    }
+    if (phase === 'catalog_unavailable') {
+      line('The model list is unavailable. Checking GPT-OSS 120B directly with this key.');
+    }
+    if (phase === 'describing_photo') {
+      stage = modelName('cerebras', detail.model);
+      line(stage + ' is describing the saved frame for GPT-OSS 120B.');
+    }
+    if (phase === 'frame_evidence') {
+      line(
+        detail.model
+          ? 'Photo description ready for GPT-OSS 120B.'
+          : 'GPT-OSS 120B will use the question and available text. A photo description is unavailable.',
+      );
     }
     if (phase === 'retry') {
       line('Provider returned HTTP ' + detail.status + '. Retrying in ' + seconds(detail.waitMs) + '.');
@@ -137,11 +151,15 @@ export function requestActivity() {
     if (phase === 'usage') {
       metrics(detail);
       line(
-        (detail.outputTokens == null
-          ? 'Token count unavailable'
-          : number(detail.outputTokens) + ' output tokens') +
+        (detail.model ? modelName(detail.provider, detail.model) + ' · ' : '') +
+          (detail.outputTokens == null
+            ? 'Token count unavailable'
+            : number(detail.outputTokens) + ' output tokens') +
           ' · provider call ' +
           seconds(detail.providerMs) +
+          (detail.tokensPerSecond == null
+            ? ''
+            : ' · ' + number(detail.tokensPerSecond) + ' effective tok/s') +
           '.',
       );
       stage = 'OpenClaw';

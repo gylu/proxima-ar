@@ -1,5 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { defaultModel, providers } from '../web/models.js';
+import { defaultModel, gptOssModel, providers } from '../web/models.js';
 import { GuideError } from './guidance.mjs';
 
 // Destinations are server-owned. A credential is valid for exactly the provider selected by the visitor.
@@ -36,7 +36,7 @@ export function selectProvider(value = {}, projectKey) {
     throw new GuideError(400, 'credentials', 'Check the API key for spaces or extra characters.');
   if (value.allowFallback != null && typeof value.allowFallback !== 'boolean')
     throw new GuideError(400, 'settings', 'Choose whether to allow a backup model.');
-  return { provider, model, apiKey, allowFallback: provider === 'cerebras' && value.allowFallback === true };
+  return { provider, model, apiKey, allowFallback: provider === 'cerebras' && value.allowFallback !== false };
 }
 
 function providerError(status, code, name) {
@@ -177,6 +177,8 @@ export async function queryProvider(route, messages, signal, progress, fetcher =
   if (stream) body.stream_options = { include_usage: true };
   if (provider === 'cerebras' && model === defaultModel)
     Object.assign(body, { reasoning_effort: 'low', temperature: 0.2, top_p: 1 });
+  if (provider === 'cerebras' && model === gptOssModel)
+    Object.assign(body, { reasoning_effort: 'low', response_format: { type: 'json_object' } });
   const encoded = JSON.stringify(body);
   for (let attempt = 1; ; attempt++) {
     signal.throwIfAborted();
@@ -235,7 +237,7 @@ export async function queryProvider(route, messages, signal, progress, fetcher =
       providerMs: performance.now() - start,
       decodeMs: seconds == null ? null : seconds * 1000,
     };
-    progress('usage', totalUsage([metrics]));
+    progress('usage', { ...totalUsage([metrics]), provider, model });
     return { text: result.text, metrics, model };
   }
 }

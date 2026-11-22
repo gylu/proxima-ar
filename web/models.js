@@ -1,10 +1,13 @@
 export const defaultModel = 'moonshotai-kimi-k3.1-pro-trial';
+export const gptOssModel = 'gpt-oss-120b';
+export const qwenModel = 'qwen-3.8-27b';
 export const providers = {
   cerebras: {
     name: 'Cerebras',
     models: [
       [defaultModel, 'Kimi K3.1 Pro'],
-      ['qwen-3.8-27b', 'Qwen 3.8 27B'],
+      [gptOssModel, 'GPT-OSS 120B'],
+      [qwenModel, 'Qwen 3.8 27B'],
     ],
   },
   openai: {

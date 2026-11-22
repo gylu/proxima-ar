@@ -197,18 +197,22 @@ const server = http.createServer(async (req, res) => {
         const write = (event) => {
           if (streaming && !res.destroyed) res.write(JSON.stringify(event) + '\n');
         };
-        const progress = (phase, detail) => write({ type: 'progress', phase, detail });
         const calls = [];
+        const progress = (phase, detail) => {
+          if (phase === 'usage') calls.push(detail);
+          write({ type: 'progress', phase, detail });
+        };
         progress('accepted', {});
         const pulse = streaming && setInterval(() => progress('waiting', {}), 8000);
         try {
-          const inference = { route, progress, calls };
+          const inference = { route, progress, question: frame.question };
           const answer = await ask(frame, signal, progress, inference);
           const reply = {
             ...answer,
             provider: route.provider,
             model: inference.answerModel || route.model,
             requestedModel: route.model,
+            ...(inference.vision && { imageContext: { model: inference.vision.model } }),
             metrics: totalUsage(calls),
           };
           if (streaming) write({ type: 'answer', reply });

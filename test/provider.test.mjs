@@ -47,7 +47,7 @@ test('Cerebras capacity retry reuses the frame, records real usage, and honors l
   let attempts = 0;
   const phases = [],
     payloads = [];
-  const route = selectProvider(undefined, 'fixture');
+  const route = selectProvider({ allowFallback: false }, 'fixture');
   const response = await queryProvider(
     route,
     messages,
