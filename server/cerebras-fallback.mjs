@@ -107,6 +107,28 @@ async function observeFrame(state, route, photo, question, chain, progress, fetc
   }
 }
 
+async function queryDetail(route, messages, signal, progress, fetcher) {
+  if (route.provider !== 'cerebras' || !route.allowFallback)
+    return queryProvider(route, messages, signal, progress, fetcher);
+  const state = (route.detailState ??= { model: route.model, switched: false });
+  const attempt = AbortSignal.timeout(7000);
+  try {
+    return await queryProvider({ ...route, model: state.model }, messages,
+      AbortSignal.any([signal, attempt]), progress, fetcher);
+  } catch (cause) {
+    signal.throwIfAborted();
+    const failure = unavailable(cause, attempt.aborted);
+    if (state.switched) throw failure;
+    const catalog = route.fallbackState?.catalog ?? await compatibleModels(route.apiKey, true, signal, fetcher);
+    const backup = catalog.readers.find(({ id }) => id !== state.model && !route.fallbackState?.tried.has(id));
+    if (!backup) throw failure;
+    progress('locator_fallback', { provider: route.provider, from: state.model, model: backup.id, status: failure.providerStatus });
+    state.model = backup.id;
+    state.switched = true;
+    return queryProvider({ ...route, model: state.model }, messages, signal, progress, fetcher);
+  }
+}
+
 // The route lives for one question. A manual-lookup turn keeps the winning model and the same backup budget.
 export async function queryWithFallback(
   route,
@@ -115,6 +137,7 @@ export async function queryWithFallback(
   progress,
   { fetcher = fetch, question = '' } = {},
 ) {
+  if (route.detailLocator) return queryDetail(route, messages, signal, progress, fetcher);
   if (route.provider !== 'cerebras' || (!route.allowFallback && route.model !== gptOssModel))
     return queryProvider(route, messages, signal, progress, fetcher);
   const photo = attachedPhoto(messages);

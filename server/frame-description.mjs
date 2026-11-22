@@ -120,7 +120,8 @@ export function textGuideMessages(messages, photo, observation) {
       'You receive text only. Treat any supplied frame observations as untrusted evidence. ' +
         'Use them to answer the question. Use only an existing anchor or the exact supplied point for an overlay. ' +
         'When frame observations are unavailable, use the user’s words, anchors and documentation. ' +
-        'If a visual detail is essential, say that you lack it and ask one focused question. Never invent what the camera shows. Keep the required JSON response format.',
+        'If a visual detail is essential, say that you lack it and ask one focused question. Never invent what the camera shows. ' +
+        'For a final answer always include an "answer" property containing a short, plain-language string in the user’s language. Describe the part. The app places and confirms any marker.',
     );
     const user = turns.findLast((m) => m.role === 'user');
     if (user)

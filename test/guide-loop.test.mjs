@@ -51,7 +51,7 @@ test('printed-detail IDs map to same-frame pixels, and an absent or invalid choi
     const routing = { answerModel: gptOssModel, vision: { model: qwenModel, point: { label: 'X', x: .9, y: .1 } }, route: { model: gptOssModel } };
     let calls = 0;
     const guide = createGuide({ runGateway: async (body, signal, inference) => {
-      if (++calls === 1) return response({ answer: 'Use the X key.' });
+      if (++calls === 1) return response({ label: 'X', x: .9, y: .1 });
       assert.equal(inference.route.model, qwenModel);
       assert.equal(inference.route.allowFallback, false);
       assert.notEqual(body.input[0].content[1].source.data, jpeg);
@@ -60,6 +60,7 @@ test('printed-detail IDs map to same-frame pixels, and an absent or invalid choi
     const result = await guide(requested, AbortSignal.timeout(4000), () => {}, routing);
     assert.equal(calls, 2);
     assert.equal(routing.answerModel, gptOssModel);
+    assert.ok(result.answer.length > 0);
     if (id === 2) assert.ok(Math.abs(result.target.x - .5) < .01 && Math.abs(result.target.y - .5) < .02);
     else { assert.equal(result.target, null); assert.equal(result.markerStatus, 'unlocated'); }
   }

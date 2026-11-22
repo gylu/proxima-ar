@@ -139,6 +139,10 @@ export function requestActivity() {
       stage = 'the visual locator';
       line('Looking for the requested part in the captured frame.');
     }
+    if (phase === 'locator_fallback') {
+      stage = modelName('cerebras', detail.model);
+      line(modelName('cerebras', detail.from) + ' could not finish locating the target. ' + stage + ' is checking its position.');
+    }
     if (phase === 'frame_evidence') {
       line(
         detail.model

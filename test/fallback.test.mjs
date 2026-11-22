@@ -146,6 +146,18 @@ test('GPT-OSS answers image questions from a key-scoped vision description and r
   );
 });
 
+test('a busy marker locator uses a permitted image reader for both detail views, and respects opt-out', async () => {
+  const server = service(({ model }) => model === defaultModel ? busy() : response());
+  const config = { ...route(), detailLocator: true };
+  assert.equal((await server.run(config)).model, qwen);
+  assert.equal((await server.run(config)).model, qwen);
+  assert.deepEqual(server.bodies.map((b) => b.model), [defaultModel, qwen, qwen]);
+  assert.ok(server.events.some((e) => e.phase === 'locator_fallback'));
+  const off = service(busy);
+  await assert.rejects(off.run({ ...route(false), detailLocator: true }), { code: 'busy' });
+  assert.deepEqual(off.paths, ['/v1/chat/completions']);
+});
+
 test('a stalled primary advances on its own deadline, while cancelling the question stops the entire chain', async (t) => {
   const nativeTimeout = AbortSignal.timeout.bind(AbortSignal);
   t.mock.method(AbortSignal, 'timeout', (ms) => nativeTimeout(ms === 14000 ? 8 : ms));

@@ -292,6 +292,7 @@ function renderMarkerStatus() {
   capture.hidden = !fallback;
   const message = advanced ? '' : fallback ? 'Live tracking lost the part. See the marked frame below the camera.'
     : livePoint ? (scene.source === 'camera' ? 'Marked on the live camera.' : 'Marked in your photo.')
+    : answer?.markerStatus === 'unavailable' ? 'The visual locator couldn’t finish. Use “Run same frame again” to retry.'
     : answer?.markerStatus === 'unlocated' ? 'I couldn’t place a marker in this frame. Move closer or try another angle, then ask again.'
     : '';
   const status = $('marker-status');
@@ -604,6 +605,7 @@ async function ask(event, repeat = false, voiceFrame) {
       notice('The model identified a part in the saved frame. Reframe and ask again to position its marker.');
     if (result.target && !advanced) activity.line(locked ? 'Placed the marker on your view.' : 'Marked the frame captured with this question.');
     else if (result.markerStatus === 'unlocated') activity.line('Could not locate the requested part in this frame.');
+    else if (result.markerStatus === 'unavailable') activity.line('Visual marker unavailable. This frame is saved for retry.');
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     if (!current()) return;
     const ms = performance.now() - start;

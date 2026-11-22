@@ -141,7 +141,10 @@ export function readModelJSON(envelope) {
 export function parseTurn(envelope, frame, vision) {
   const result = readModelJSON(envelope);
   if (result?.lookup && !result.answer) return { lookup: result.lookup };
-  if (!result || !textWithin(result.answer, 2400))
+  // A locator may supply only geometry. A marking request can still be fulfilled from the image.
+  const geometryOnly = result && typeof result === 'object' && !Array.isArray(result) && !result.error &&
+    !result.answer && frame.inputMode === 'image' && asksForMarker(frame.question);
+  if (!result || (!geometryOnly && !textWithin(result.answer, 2400)))
     throw new GuideError(502, 'invalid_reply', 'The response had no usable guidance. Try again.');
   const known = frame.anchors.find((a) => a.id === result.target_id);
   let target = null;
@@ -168,7 +171,7 @@ export function parseTurn(envelope, frame, vision) {
   }
   return {
     frameId: frame.frameId,
-    answer: result.answer,
+    answer: geometryOnly ? null : result.answer,
     target,
     sourceIds: Array.isArray(result.source_ids)
       ? result.source_ids.filter((id) => typeof id === 'string').slice(0, 4)
