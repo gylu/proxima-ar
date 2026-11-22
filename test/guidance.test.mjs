@@ -61,6 +61,21 @@ test('capacity and malformed model responses surface actionable errors', () => {
   });
 });
 
+test('an explicit marker uses the image reader’s measured point even when the text model paraphrases or omits the label', () => {
+  const requested = { ...frame, inputMode: 'image', question: 'Can you mark the ampersand key?', anchors: [] };
+  const point = { label: '& / 7', x: .75, y: .24 };
+  const vision = { model: 'reader', point };
+  for (const label of [null, 'ampersand key']) {
+    const result = parseTurn(envelope({ answer: 'Use Shift and 7.', label, x: .5, y: .5 }), requested, vision);
+    assert.deepEqual(result.target, { id: null, ...point });
+  }
+  assert.equal(parseTurn(envelope({ answer: 'Use Shift and 7.', label: 'key', x: .5, y: .5 }), requested, { model: null, point: null }).target, null);
+  const located = { answer: 'Here it is.', label: '7', bbox_2d: [700, 200, 800, 280] };
+  assert.deepEqual(parseTurn(envelope(located), requested).target, { id: null, label: '7', x: .75, y: .24 });
+  for (const box of [[800, 280, 700, 200], [0,0,1,1], [-10, 20, 40, 50], [10, 20, 30]])
+    assert.equal(parseTurn(envelope({ ...located, bbox_2d: box }), requested).target, null);
+});
+
 test('projects a delayed answer through translation, rotation and scale despite an outlier', () => {
   const a = 1.09,
     b = 0.12,

@@ -50,7 +50,7 @@
       <div class="page-heading">
         <div>
           <h1><span id="page-name">Visual guide</span><span class="heading-period">.</span></h1>
-          <p id="page-description">Show Proxima what you’re looking at, then ask your question.</p>
+          <p id="page-description">Point your camera or upload a photo. Ask a question or tell Proxima what to mark.</p>
         </div>
         <div id="heading-controls"></div>
       </div>
@@ -112,6 +112,13 @@
             <div class="screen-corners" aria-hidden="true"><b></b><b></b><b></b><b></b></div>
             <div class="anchor-hint" id="anchor-hint" hidden>Tap a part to add an anchor</div>
           </div>
+          <figure id="marked-capture" hidden>
+            <figcaption><strong>Marked camera frame</strong><span id="capture-label"></span></figcaption>
+            <div class="capture-picture">
+              <img id="captured-photo" alt="Camera frame from when you asked" />
+              <span class="target-ring" id="captured-ring" aria-hidden="true"></span>
+            </div>
+          </figure>
           <div class="view-caption">
             <div class="scene-caption">
               <span class="scene-icon"><i data-icon="circuit-board"></i></span>
@@ -139,6 +146,7 @@
               <p id="reading-text">
                 Connect your first monitor to HDMI0, the micro-HDMI socket closest to the USB-C power port.
               </p>
+              <small id="marker-status" hidden></small>
               <div id="answer-sources" class="answer-sources" hidden></div>
               <small id="image-context" hidden></small>
               <span class="latency" id="latency" hidden></span>

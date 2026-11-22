@@ -258,10 +258,18 @@ export class Scene {
     if (this.source === 'camera' ? source.readyState < 2 : !source.complete || !source.naturalWidth) {
       throw new Error('The frame is still loading. Try again in a moment.');
     }
-    const frame =
+    let frame =
       inputMode === 'anchors'
         ? null
-        : canvasOf(source, this.width, this.height, this.source === 'reference' ? 640 : 960);
+        : canvasOf(source, this.width, this.height, 1600);
+    let jpeg;
+    if (frame) {
+      jpeg = frame.toDataURL('image/jpeg', 0.84).split(',')[1];
+      if (jpeg.length > 800_000) {
+        frame = canvasOf(frame, frame.width, frame.height, 960);
+        jpeg = frame.toDataURL('image/jpeg', 0.72).split(',')[1];
+      }
+    }
     // Inference and the new tracking baseline must see the very same pixels.
     if (frame) this.rebase(frame);
     const anchors = this.anchors.flatMap((a) => {
@@ -274,7 +282,7 @@ export class Scene {
       frameId: crypto.randomUUID(),
       inputMode,
       scene: this.source,
-      jpeg: frame ? frame.toDataURL('image/jpeg', 0.76).split(',')[1] : undefined,
+      jpeg,
       selected: this.selected,
       anchors,
     };

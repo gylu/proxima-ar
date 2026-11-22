@@ -84,6 +84,7 @@ function setReading(source, title, description, issue = false, glyph = 'book-ope
   $('answer-sources').replaceChildren();
   $('answer-sources').hidden = true;
   $('image-context').hidden = true;
+  $('marker-status').hidden = true;
   $('reading-source').replaceChildren(icon(glyph), node('span', source));
   $('reading-heading').textContent = title;
   $('reading-text').textContent = description;
@@ -135,6 +136,7 @@ function showAnswer(result) {
       ? name + ' · fallback for ' + modelName(result.provider, result.requestedModel)
       : name + ' · live answer';
   setReading(byline, result.target?.label || 'Answer', result.answer, false, 'scan-eye');
+  renderMarkerStatus();
   if (result.imageContext) {
     $('image-context').textContent = result.imageContext.model
       ? 'Photo described by ' + modelName(result.provider, result.imageContext.model)
@@ -217,7 +219,7 @@ function renderAnchors() {
     m.setAttribute('aria-label', 'Locate ' + a.label);
     const tag = node('span', null, 'marker-name');
     tag.append(node('em', code), document.createTextNode(a.label));
-    m.append(tag);
+    m.append(node('span', null, 'target-ring'), tag);
     markerNodes.set(a.id, m);
     markers.push(m);
   });
@@ -259,6 +261,7 @@ function renderMotion() {
       marker.style.left = (100 * p.x).toFixed(3) + '%';
       marker.style.top = (100 * p.y).toFixed(3) + '%';
       marker.classList.toggle('flip', p.x < 0.4);
+      marker.classList.toggle('near-top', p.y < 0.17);
     }
   }
   if (scene.source === 'camera') {
@@ -268,6 +271,32 @@ function renderMotion() {
         ? 'Target lost · reacquire the part'
         : 'Optical flow · ' + (scene.tracker?.tracks.length ?? 0) + ' local features';
   }
+  renderMarkerStatus();
+}
+function renderMarkerStatus() {
+  const answer = lastAnswer;
+  const selected = answer?.target && scene.anchors.find((a) => a.id === answer.markerId);
+  const livePoint = selected && scene.position(selected);
+  const fallback = !advanced && scene.source === 'camera' && answer?.cameraFrame && !livePoint;
+  const capture = $('marked-capture');
+  if (fallback && capture.dataset.frame !== answer.frameId) {
+    $('captured-photo').src = 'data:image/jpeg;base64,' + answer.cameraFrame;
+    $('capture-label').textContent = answer.target.label;
+    $('captured-ring').style.left = (answer.target.x * 100) + '%';
+    $('captured-ring').style.top = (answer.target.y * 100) + '%';
+    capture.dataset.frame = answer.frameId;
+  } else if (!fallback && capture.dataset.frame) {
+    $('captured-photo').removeAttribute('src');
+    delete capture.dataset.frame;
+  }
+  capture.hidden = !fallback;
+  const message = advanced ? '' : fallback ? 'Live tracking lost the part. See the marked frame below the camera.'
+    : livePoint ? (scene.source === 'camera' ? 'Marked on the live camera.' : 'Marked in your photo.')
+    : answer?.markerStatus === 'unlocated' ? 'I couldn’t place a marker in this frame. Move closer or try another angle, then ask again.'
+    : '';
+  const status = $('marker-status');
+  if (status.textContent !== message) status.textContent = message;
+  status.hidden = !message || Boolean(activeRequest && answer?.frameId !== savedFrame?.payload.frameId);
 }
 function renderPrompts() {
   const samples =
@@ -292,7 +321,7 @@ function renderView() {
   $('page-name').textContent = advanced ? 'Set your own anchors' : 'Visual guide';
   $('page-description').textContent = advanced
     ? 'Tap a part in the image to name it and track it.'
-    : 'Show Proxima what you’re looking at, then ask your question.';
+    : 'Point your camera or upload a photo. Ask a question or tell Proxima what to mark.';
   document.title = $('page-name').textContent + ' · Proxima AR';
   for (const [id, active] of [
     ['workspace-nav', !advanced],
@@ -430,6 +459,7 @@ async function ask(event, repeat = false, voiceFrame) {
     return;
   }
   if (question.length > 600) { notice('Shorten the question to 600 characters and press Ask.'); return; }
+  if (document.activeElement === $('question')) $('question').blur();
   $('voice-status').hidden = true;
   setMoveMode();
   const route = models.selection();
@@ -447,6 +477,10 @@ async function ask(event, repeat = false, voiceFrame) {
     if (!repeat) savedFrame = null;
     capture = repeat ? savedFrame : captureQuestion(question, voiceFrame);
     savedFrame = capture;
+    if (!advanced) {
+      lastAnswer = null;
+      renderMotion();
+    }
     const frame = capture.payload;
     const mapOnly = frame.inputMode === 'anchors';
     activity.begin(route.provider, route.model, frame.frameId);
@@ -559,18 +593,21 @@ async function ask(event, repeat = false, voiceFrame) {
     }
     scene.selected = target?.id ?? null;
     if (target) showOverlays = true;
-    lastAnswer = { ...result, markerId: target?.id };
+    lastAnswer = { ...result, markerId: target?.id,
+      cameraFrame: result.target && scene.source === 'camera' ? frame.jpeg : null };
     contextId = result.contextId || null;
     renderAnchors();
     $('anchor-hint').hidden = scene.source === 'reference' || scene.anchors.length > 0;
     showAnswer(lastAnswer);
     const locked = target && scene.position(target);
-    if (result.target && !locked)
+    if (advanced && result.target && !locked)
       notice('The model identified a part in the saved frame. Reframe and ask again to position its marker.');
+    if (result.target && !advanced) activity.line(locked ? 'Placed the marker on your view.' : 'Marked the frame captured with this question.');
+    else if (result.markerStatus === 'unlocated') activity.line('Could not locate the requested part in this frame.');
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     if (!current()) return;
     const ms = performance.now() - start;
-    lastAnswer.timing = elapsedText(ms) + (locked ? ' to overlay' : ' to answer');
+    lastAnswer.timing = elapsedText(ms) + (locked || lastAnswer.cameraFrame ? ' to overlay' : ' to answer');
     $('latency').textContent = lastAnswer.timing;
     $('latency').hidden = false;
     const answeredBy = modelName(result.provider, result.model) || name;

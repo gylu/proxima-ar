@@ -1,5 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { defaultModel, gptOssModel, providers } from '../web/models.js';
+import { defaultModel, gptOssModel, qwenModel, providers } from '../web/models.js';
 import { GuideError } from './guidance.mjs';
 
 // Destinations are server-owned. A credential is valid for exactly the provider selected by the visitor.
@@ -180,6 +180,8 @@ export async function queryProvider(route, messages, signal, progress, fetcher =
   if (provider === 'cerebras' && model === gptOssModel)
     Object.assign(body, { reasoning_effort: 'low', response_format: { type: 'json_object' } });
   if (provider === 'cerebras' && route.responseFormat) body.response_format = route.responseFormat;
+  if (provider === 'cerebras' && route.detailLocator && model === qwenModel)
+    Object.assign(body, { reasoning_effort: 'none', temperature: 0, max_tokens: 220, response_format: { type: 'json_object' } });
   const encoded = JSON.stringify(body);
   for (let attempt = 1; ; attempt++) {
     signal.throwIfAborted();

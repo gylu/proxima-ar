@@ -1,10 +1,12 @@
 import { defaultModel, gptOssModel, qwenModel } from '../web/models.js';
 import { GuideError } from './guidance.mjs';
 import { queryProvider } from './provider.mjs';
+import { asksForMarker } from './grounding.mjs';
 import {
   attachedPhoto,
   describePhotoMessages,
   frameObservationFormat,
+  targetObservationFormat,
   readDescription,
   textGuideMessages,
 } from './frame-description.mjs';
@@ -79,11 +81,12 @@ function unavailable(error, timedOut) {
 async function observeFrame(state, route, photo, question, chain, progress, fetcher) {
   const reader = state.catalog.readers.find(({ id }) => !state.tried.has(id));
   if (!reader) return null;
-  const limit = AbortSignal.timeout(6500);
+  const marking = asksForMarker(question);
+  const limit = AbortSignal.timeout(marking ? 12000 : 6500);
   progress('describing_photo', { model: reader.id });
   try {
     const result = await queryProvider(
-      { ...route, model: reader.id, responseFormat: reader.structured ? frameObservationFormat : undefined },
+      { ...route, model: reader.id, responseFormat: reader.structured ? (marking ? targetObservationFormat : frameObservationFormat) : undefined },
       describePhotoMessages(photo, question),
       AbortSignal.any([chain, limit]),
       progress,

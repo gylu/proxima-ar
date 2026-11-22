@@ -4,6 +4,8 @@ import { createGuide } from '../server/guide-loop.mjs';
 import { lookupRequest, candidates } from '../server/manual-search.mjs';
 import { GuideError, readFrame } from '../server/guidance.mjs';
 import { Scene } from '../web/scene.js';
+import sharp from 'sharp';
+import { qwenModel, gptOssModel } from '../web/models.js';
 
 const frame = readFrame({ frameId: 'scene-frame', jpeg: '/9j/AAAA', question: 'How do I switch inputs?' });
 const plan = {
@@ -23,6 +25,45 @@ function response(value) {
   return { output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(value) }] }] };
 }
 const direct = { answer: 'Choose the input source.', target_id: null };
+
+test('a first-turn marker on an unlabelled scene gets a visual localization retry and preserves its answer', async () => {
+  const requested = { ...frame, question: 'Please circle the blue knob.' };
+  const stages = [], bodies = [];
+  const guide = createGuide({ runGateway: async (body) => {
+    bodies.push(body);
+    const data = bodies.length === 1 ? { answer: 'Turn the blue knob.' }
+      : { answer: 'Here.', label: 'Blue knob', bbox_2d: [200, 300, 400, 500] };
+    return response(data);
+  } });
+  const result = await guide(requested, stop, (stage) => stages.push(stage));
+  assert.deepEqual(stages, ['locating']);
+  assert.equal(bodies[0].input[0].content[1].source.data, bodies[1].input[0].content[1].source.data);
+  assert.equal(result.answer, 'Turn the blue knob.');
+  assert.deepEqual(result.target, { id: null, label: 'Blue knob', x: .3, y: .4 });
+  assert.equal(result.markerStatus, 'located');
+});
+
+test('printed-detail IDs map to same-frame pixels, and an absent or invalid choice clears a coarse model guess', async () => {
+  const shapes = [40, 130, 220].map((x) => '<rect x="' + (x-4) + '" y="54" width="8" height="10" fill="white"/>').join('');
+  const jpeg = (await sharp(Buffer.from('<svg width="260" height="120"><rect width="260" height="120" fill="#222"/>' + shapes + '</svg>')).jpeg().toBuffer()).toString('base64');
+  const requested = { ...frame, jpeg, question: 'Mark the key labeled X.' };
+  for (const id of [2, null, 2000]) {
+    const routing = { answerModel: gptOssModel, vision: { model: qwenModel, point: { label: 'X', x: .9, y: .1 } }, route: { model: gptOssModel } };
+    let calls = 0;
+    const guide = createGuide({ runGateway: async (body, signal, inference) => {
+      if (++calls === 1) return response({ answer: 'Use the X key.' });
+      assert.equal(inference.route.model, qwenModel);
+      assert.equal(inference.route.allowFallback, false);
+      assert.notEqual(body.input[0].content[1].source.data, jpeg);
+      return response({ id, label: 'X' });
+    } });
+    const result = await guide(requested, AbortSignal.timeout(4000), () => {}, routing);
+    assert.equal(calls, 2);
+    assert.equal(routing.answerModel, gptOssModel);
+    if (id === 2) assert.ok(Math.abs(result.target.x - .5) < .01 && Math.abs(result.target.y - .5) < .02);
+    else { assert.equal(result.target, null); assert.equal(result.markerStatus, 'unlocated'); }
+  }
+});
 
 test('a full scene can still show a visual answer and preserves user pins', () => {
   const scene = Object.create(Scene.prototype);

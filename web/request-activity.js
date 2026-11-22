@@ -135,6 +135,10 @@ export function requestActivity() {
       stage = modelName('cerebras', detail.model);
       line(stage + ' is describing the saved frame for GPT-OSS 120B.');
     }
+    if (phase === 'locating') {
+      stage = 'the visual locator';
+      line('Looking for the requested part in the captured frame.');
+    }
     if (phase === 'frame_evidence') {
       line(
         detail.model

@@ -1507,6 +1507,41 @@ dialog::backdrop {
 [data-view='guide'] .marker-name em {
   display: none;
 }
+.target-ring {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 25px;
+  height: 25px;
+  box-sizing: border-box;
+  border: 3px solid #fc523f;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px white, inset 0 0 0 1px white, 0 1px 6px #221410ab;
+  pointer-events: none;
+}
+.target-ring::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #fc523f;
+  box-shadow: 0 0 0 1px white;
+}
+[data-view='guide'] .marker.active .target-ring, #captured-ring { display: block; }
+[data-view='guide'] .marker.active::before, [data-view='guide'] .marker.active::after { display: none; }
+[data-view='guide'] .marker.active.near-top .marker-name { top: 29px; }
+[data-view='guide'] .marker.active.near-top .marker-name::after { display: none; }
+#marked-capture { margin: 0; padding: 12px 16px; background: #eef2ea; }
+#marked-capture figcaption { display: flex; gap: 10px; justify-content: space-between; margin-bottom: 8px; font-size: .85rem; }
+.capture-picture { position: relative; width: fit-content; max-width: 100%; margin: auto; }
+.capture-picture img { display: block; max-width: 100%; max-height: 32vh; border-radius: 4px; }
+#marker-status { display: block; margin-top: 8px; font-size: .88rem; color: #45553e; }
 [data-view='guide'] .viewer:fullscreen .screen,
 [data-view='guide'] .viewer.expanded .screen {
   height: auto;
