@@ -9,7 +9,11 @@ const headers = {
 };
 const json = (status, body) => Response.json(body, { status, headers });
 const offline = () => ({ model: MODEL, harness: 'OpenClaw', runtime: 'offline' });
-const unavailable = () => json(503, { code: 'offline', error: 'The private cloud guide is unavailable.' });
+const unavailable = (stage, status) => {
+  // Only fixed stage names and HTTP status codes belong in logs. Requests and credentials stay private.
+  if (stage) console.warn('Proxima cloud connection', stage, status ?? '');
+  return json(503, { code: 'offline', error: 'The private cloud guide is unavailable.' });
+};
 const googleTokenUrl = 'https://oauth2.googleapis.com/token';
 const base64url = (bytes) =>
   btoa(String.fromCharCode(...bytes))
@@ -20,11 +24,13 @@ const encode = (value) => base64url(new TextEncoder().encode(JSON.stringify(valu
 let cachedToken;
 
 // Only this edge service can use the invoker identity. The browser never receives its credentials.
-async function cloudIdentity(rawCredential, audience) {
+async function cloudIdentity(rawCredential, audience, trace) {
+  trace.stage = 'credential-format';
   const credentials = JSON.parse(rawCredential);
   const now = Math.floor(Date.now() / 1000);
   const cacheKey = credentials.private_key_id + '@' + credentials.client_email + '|' + audience;
   if (cachedToken?.key === cacheKey && cachedToken.expires > now) return cachedToken.value;
+  trace.stage = 'signing-key';
   const pem = credentials.private_key.replace(/-----[A-Z ]+-----|\s/g, '');
   const privateKey = await crypto.subtle.importKey(
     'pkcs8',
@@ -43,11 +49,13 @@ async function cloudIdentity(rawCredential, audience) {
       exp: now + 600,
       target_audience: audience,
     });
+  trace.stage = 'signature';
   const signature = await crypto.subtle.sign(
     'RSASSA-PKCS1-v1_5',
     privateKey,
     new TextEncoder().encode(unsigned),
   );
+  trace.stage = 'identity-exchange';
   const response = await fetch(googleTokenUrl, {
     method: 'POST',
     redirect: 'error',
@@ -57,7 +65,11 @@ async function cloudIdentity(rawCredential, audience) {
       assertion: unsigned + '.' + base64url(new Uint8Array(signature)),
     }),
   });
-  if (!response.ok) throw new Error('Cloud identity unavailable');
+  if (!response.ok) {
+    trace.status = response.status;
+    throw new Error('Cloud identity unavailable');
+  }
+  trace.stage = 'identity-response';
   const { id_token } = await response.json();
   if (typeof id_token !== 'string' || !id_token) throw new Error('Missing cloud identity');
   cachedToken = { key: cacheKey, value: id_token, expires: now + 2700 };
@@ -78,19 +90,22 @@ async function api(request, url, env) {
     return json(403, { error: 'Same-origin application required' });
   if (!env.PROXIMA_SERVICE_URL || !env.PROXIMA_SERVICE_TOKEN || !env.PROXIMA_CLOUD_INVOKER)
     return status ? json(200, offline()) : unavailable();
+  const trace = { stage: 'service-url' };
   try {
     const service = new URL(env.PROXIMA_SERVICE_URL);
     if (
       service.protocol !== 'https:' ||
       !service.hostname.endsWith('.run.app') ||
-      service.href !== service.origin + '/' ||
+      (service.pathname && service.pathname !== '/') ||
+      service.search || service.hash ||
       service.username ||
       service.password ||
       service.port
     )
-      return unavailable();
+      return unavailable(trace.stage);
     let body;
     if (!status) {
+      trace.stage = 'frame-read';
       const size = Number(request.headers.get('content-length') || 0);
       if (size > 900000 || !request.body) return json(413, { error: 'Invalid frame size' });
       const reader = request.body.getReader();
@@ -108,7 +123,8 @@ async function api(request, url, env) {
       }
       body = new Blob(chunks);
     }
-    const identity = await cloudIdentity(env.PROXIMA_CLOUD_INVOKER, service.origin);
+    const identity = await cloudIdentity(env.PROXIMA_CLOUD_INVOKER, service.origin, trace);
+    trace.stage = 'cloud-request';
     const upstream = await fetch(service.origin + url.pathname, {
       method: request.method,
       body,
@@ -126,14 +142,14 @@ async function api(request, url, env) {
     const type = upstream.headers.get('content-type')?.split(';')[0];
     if (!['application/json', 'application/x-ndjson'].includes(type)) {
       await upstream.body?.cancel();
-      return unavailable();
+      return unavailable('cloud-response', upstream.status);
     }
     return new Response(upstream.body, {
       status: upstream.status,
       headers: { ...headers, 'Content-Type': type },
     });
   } catch {
-    return unavailable();
+    return unavailable(trace.stage, trace.status);
   }
 }
 
