@@ -77,7 +77,9 @@ export function requestActivity() {
   }
   function metrics(m) {
     speed.textContent =
-      speedLabel(m) + (m?.outputTokens == null ? '' : ' · ' + number(m.outputTokens) + ' output tokens');
+      speedLabel(m) +
+      (m?.outputTokens == null ? '' : ' · ' + number(m.outputTokens) + ' output tokens') +
+      (m?.calls > 1 ? ' across ' + m.calls + ' model calls' : '');
     speed.title =
       'Effective speed divides output tokens by successful provider request time, including its wait. Decode speed uses generation time reported by the provider. Both sum completed model calls.';
   }
@@ -95,8 +97,36 @@ export function requestActivity() {
       line('OpenClaw is preparing the model request.');
     }
     if (phase === 'provider') {
-      stage = providers[detail.provider]?.name || 'the provider';
+      const name = modelName(detail.provider, detail.model);
+      stage = name + ' on ' + providers[detail.provider].name;
       line('Request sent to ' + stage + ' · attempt ' + detail.attempt + '.');
+    }
+    if (phase === 'model_unavailable') {
+      const reason =
+        {
+          busy: 'is busy or rate-limited',
+          model_unavailable: 'is unavailable',
+          provider_timeout: 'timed out',
+          provider_network: 'lost its connection',
+          provider_stream: 'returned an incomplete response',
+          provider_empty: 'returned no answer',
+        }[detail.reason] || 'could not answer';
+      line(
+        modelName(detail.provider, detail.model) +
+          ' ' +
+          reason +
+          (detail.status ? ' (HTTP ' + detail.status + ')' : '') +
+          '.',
+      );
+    }
+    if (phase === 'fallback_lookup') {
+      stage = 'the Cerebras model list';
+      line('Checking which compatible endpoints this Cerebras key can use.');
+    }
+    if (phase === 'fallback') {
+      const name = modelName(detail.provider, detail.model);
+      label = name + ' · ' + providers[detail.provider].name + ' (fallback)';
+      line('Trying ' + name + ' with the same key and input.');
     }
     if (phase === 'retry') {
       line('Provider returned HTTP ' + detail.status + '. Retrying in ' + seconds(detail.waitMs) + '.');

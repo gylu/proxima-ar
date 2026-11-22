@@ -36,7 +36,7 @@ await mkdir(agentDir, { recursive: true, mode: 0o700 });
 await writeFile(
   path.join(agentDir, 'settings.json'),
   JSON.stringify({
-    retry: { provider: { maxRetries: 0, timeoutMs: 30000 } },
+    retry: { provider: { maxRetries: 0, timeoutMs: 45000 } },
   }),
   { mode: 0o600 },
 );
@@ -202,11 +202,13 @@ const server = http.createServer(async (req, res) => {
         progress('accepted', {});
         const pulse = streaming && setInterval(() => progress('waiting', {}), 8000);
         try {
-          const answer = await ask(frame, signal, progress, { route, progress, calls });
+          const inference = { route, progress, calls };
+          const answer = await ask(frame, signal, progress, inference);
           const reply = {
             ...answer,
             provider: route.provider,
-            model: route.model,
+            model: inference.answerModel || route.model,
+            requestedModel: route.model,
             metrics: totalUsage(calls),
           };
           if (streaming) write({ type: 'answer', reply });

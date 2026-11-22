@@ -34,7 +34,9 @@ export function selectProvider(value = {}, projectKey) {
     );
   if (!/^[\x21-\x7e]{1,1024}$/.test(apiKey))
     throw new GuideError(400, 'credentials', 'Check the API key for spaces or extra characters.');
-  return { provider, model, apiKey };
+  if (value.allowFallback != null && typeof value.allowFallback !== 'boolean')
+    throw new GuideError(400, 'settings', 'Choose whether to allow a backup model.');
+  return { provider, model, apiKey, allowFallback: provider === 'cerebras' && value.allowFallback === true };
 }
 
 function providerError(status, code, name) {
@@ -56,6 +58,10 @@ function providerError(status, code, name) {
       'busy',
       name + ' is busy or rate-limited. Retry this frame or choose another model.',
     );
+  if (status === 404 || /model_not_found|model_unavailable|model_deprecated|model_does_not_exist/i.test(code))
+    return new GuideError(404, 'model_unavailable', name + ' could not find this model endpoint.');
+  if ([408, 504].includes(status))
+    return new GuideError(504, 'provider_timeout', name + ' timed out before returning an answer.');
   if ([400, 404, 422].includes(status))
     return new GuideError(
       400,
@@ -63,6 +69,15 @@ function providerError(status, code, name) {
       name + ' declined this model or input. Check the model ID and its image support.',
     );
   return new GuideError(502, 'provider_error', name + ' could not complete this request.');
+}
+
+function embeddedError(detail, name) {
+  const code = String(detail?.code ?? '') + ' ' + String(detail?.type ?? '') + ' ' + String(detail?.status ?? '');
+  const status = Number(detail?.code);
+  const hasStatus = Number.isInteger(status) && status >= 400 && status < 600;
+  const error = providerError(hasStatus ? status : 400, code, name);
+  if (hasStatus) error.providerStatus = status;
+  return error;
 }
 
 const count = (n) => (Number.isSafeInteger(n) && n >= 0 ? n : null);
@@ -111,8 +126,7 @@ async function readStream(response, name, onFirstToken) {
     if (payload === '[DONE]') return;
     const item = JSON.parse(payload);
     const choice = item.choices?.[0];
-    if (item.error || choice?.finish_reason === 'error')
-      throw providerError(Number(item.error?.code) || 502, String(item.error?.type ?? ''), name);
+    if (item.error || choice?.finish_reason === 'error') throw embeddedError(item.error, name);
     const part = choice?.delta?.content;
     if (first && (part || choice?.delta?.reasoning || choice?.delta?.reasoning_content)) {
       first = false;
@@ -189,7 +203,7 @@ export async function queryProvider(route, messages, signal, progress, fetcher =
         String(detail?.error?.status ?? '');
       const error = providerError(response.status, code, name);
       const waitMs = retryDelay(response);
-      if (attempt === 1 && error.code === 'busy' && waitMs <= 10000) {
+      if (!route.allowFallback && attempt === 1 && error.code === 'busy' && waitMs <= 10000) {
         progress('retry', { status: response.status, waitMs });
         await delay(waitMs, undefined, { signal });
         continue;
@@ -201,13 +215,19 @@ export async function queryProvider(route, messages, signal, progress, fetcher =
     if (response.headers.get('content-type')?.includes('text/event-stream')) {
       result = await readStream(response, name, () => progress('generating', {}));
     } else {
-      const item = await response.json();
-      if (item.error)
-        throw providerError(Number(item.error.code) || 502, String(item.error.type || ''), name);
-      result = { text: item.choices?.[0]?.message?.content, usage: item.usage, timeInfo: item.time_info };
+      const item = await response.json().catch((error) => {
+        if (error instanceof SyntaxError)
+          throw new GuideError(502, 'provider_stream', name + ' returned an incomplete response.');
+        throw error;
+      });
+      if (item?.error) throw embeddedError(item.error, name);
+      const choice = item?.choices?.[0];
+      if (choice?.finish_reason === 'content_filter' || choice?.message?.refusal)
+        throw new GuideError(400, 'provider_declined', name + ' declined to answer this question.');
+      result = { text: choice?.message?.content, usage: item?.usage, timeInfo: item?.time_info };
     }
     if (typeof result.text !== 'string' || !result.text.trim())
-      throw new GuideError(502, 'invalid_reply', name + ' returned no answer text. Try another model.');
+      throw new GuideError(502, 'provider_empty', name + ' returned no answer text. Try another model.');
     const seconds = positive(result.timeInfo?.completion_time);
     const metrics = {
       inputTokens: count(result.usage?.prompt_tokens),
@@ -216,6 +236,6 @@ export async function queryProvider(route, messages, signal, progress, fetcher =
       decodeMs: seconds == null ? null : seconds * 1000,
     };
     progress('usage', totalUsage([metrics]));
-    return { text: result.text, metrics };
+    return { text: result.text, metrics, model };
   }
 }

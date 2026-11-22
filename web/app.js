@@ -102,7 +102,11 @@ function selectedAnchor() {
 }
 function showAnswer(result) {
   const name = modelName(result.provider, result.model) || 'Kimi';
-  setReading(name + ' · live answer', result.target?.label || 'Answer', result.answer, false, 'scan-eye');
+  const byline =
+    result.requestedModel && result.requestedModel !== result.model
+      ? name + ' · fallback for ' + modelName(result.provider, result.requestedModel)
+      : name + ' · live answer';
+  setReading(byline, result.target?.label || 'Answer', result.answer, false, 'scan-eye');
   const sources = result.sources || [];
   if (sources.length) {
     const box = $('answer-sources');
@@ -408,6 +412,7 @@ async function ask(event, repeat = false) {
     const mapOnly = frame.inputMode === 'anchors';
     activity.begin(route.provider, route.model, frame.frameId);
     activity.line('Question · ' + question);
+    if (route.allowFallback) activity.line('Automatic fallback to a compatible Cerebras model is allowed.');
     activity.line(
       repeat
         ? 'Reusing the same frame, question and original conversation context.'
@@ -447,7 +452,12 @@ async function ask(event, repeat = false) {
       },
       body: JSON.stringify({
         ...frame,
-        inference: { provider: route.provider, model: route.model, apiKey: route.apiKey },
+        inference: {
+          provider: route.provider,
+          model: route.model,
+          apiKey: route.apiKey,
+          allowFallback: route.allowFallback,
+        },
       }),
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(135000)]),
     });
@@ -474,10 +484,18 @@ async function ask(event, repeat = false) {
       if (phase === 'provider')
         setReading(
           'OpenClaw · ' + providerName,
-          'Waiting for ' + name + '…',
+          'Waiting for ' + modelName(detail.provider, detail.model) + '…',
           'Proxima is waiting for the provider’s response.',
           false,
           'scan-eye',
+        );
+      if (phase === 'fallback_lookup')
+        setReading(
+          providerName,
+          'Checking for a backup model…',
+          'Finding models this key can use with your input.',
+          false,
+          'activity',
         );
       if (phase === 'answering')
         setReading(
@@ -515,12 +533,13 @@ async function ask(event, repeat = false) {
     lastAnswer.timing = elapsedText(ms) + (locked ? ' to overlay' : ' to answer');
     $('latency').textContent = lastAnswer.timing;
     $('latency').hidden = false;
-    activity.finish('Answer received.', result.metrics, true, result.answer);
+    const answeredBy = modelName(result.provider, result.model) || name;
+    activity.finish('Answer received from ' + answeredBy + '.', result.metrics, true, result.answer);
     if (repeat && sceneHistory.at(-1)?.frameId === frame.frameId) sceneHistory.pop();
     sceneHistory.push({ frameId: frame.frameId, question, answer: result.answer });
     if (sceneHistory.length > 3) sceneHistory.shift();
     log(
-      name + ' · ' + providerName,
+      answeredBy + ' · ' + providerName,
       question,
       result.answer + ' · ' + speedLabel(result.metrics),
       ms,

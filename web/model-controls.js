@@ -6,6 +6,8 @@ export function setupModels(onChange) {
     modelSelect = $('model-choice');
   const custom = $('custom-model'),
     key = $('provider-key');
+  const fallback = $('allow-fallback');
+  fallback.checked = false;
   const settings = new Map();
   for (const [id, entry] of Object.entries(providers)) {
     providerSelect.add(new Option(entry.name, id));
@@ -20,6 +22,7 @@ export function setupModels(onChange) {
       model,
       name: modelName(provider, model) || 'Custom model',
       apiKey: entry.apiKey.trim(),
+      allowFallback: provider === 'cerebras' && fallback.checked,
     };
   }
   function display() {
@@ -28,6 +31,7 @@ export function setupModels(onChange) {
     $('inference-provider').textContent = 'Inference by ' + providers[provider].name;
     $('active-model-pill').textContent = name;
     $('custom-model-field').hidden = modelSelect.value !== 'custom';
+    $('fallback-setting').hidden = provider !== 'cerebras';
     $('provider-key-label').textContent =
       providers[provider].name + ' API key' + (provider === 'cerebras' ? ' (optional)' : '');
     key.placeholder = provider === 'cerebras' ? 'Use the project key' : 'Paste your provider key';
@@ -61,16 +65,18 @@ export function setupModels(onChange) {
   });
   key.addEventListener('input', () => {
     settings.get(providerSelect.value).apiKey = key.value;
+    if (providerSelect.value === 'cerebras') fallback.checked = false;
   });
   window.addEventListener('pagehide', () => {
     for (const entry of settings.values()) entry.apiKey = '';
     key.value = '';
+    fallback.checked = false;
   });
   loadProvider();
   return {
     selection,
     lock(value) {
-      for (const el of [providerSelect, modelSelect, custom, key]) el.disabled = value;
+      for (const el of [providerSelect, modelSelect, custom, key, fallback]) el.disabled = value;
     },
     edit(missingKey) {
       $('model-settings').open = true;

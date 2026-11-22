@@ -2,7 +2,7 @@ import http from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import { GuideError } from './guidance.mjs';
-import { queryProvider } from './provider.mjs';
+import { queryWithFallback } from './cerebras-fallback.mjs';
 
 const marker = /^Proxima transport ID: ([a-f0-9]{32})[ \t]*\r?$/m;
 
@@ -47,7 +47,7 @@ function completion(res, text, metrics) {
   res.end('data: [DONE]\n\n');
 }
 
-export async function startRelay(infer = queryProvider) {
+export async function startRelay(infer = queryWithFallback) {
   const turns = new Map();
   const token = randomBytes(32).toString('hex');
   const server = http.createServer(async (req, res) => {
@@ -84,6 +84,7 @@ export async function startRelay(infer = queryProvider) {
       turn.claimed = true;
       const signal = AbortSignal.any([turn.signal, disconnected.signal]);
       const result = await infer(turn.inference.route, messages, signal, turn.inference.progress);
+      turn.inference.answerModel = result.model;
       turn.inference.calls.push(result.metrics);
       completion(res, result.text, result.metrics);
     } catch (error) {

@@ -183,6 +183,13 @@
                 <label id="custom-model-field" class="wide" hidden>Model ID<input id="custom-model" type="text" maxlength="160" autocomplete="off" autocapitalize="none" spellcheck="false" /></label>
                 <label class="wide"><span id="provider-key-label">Cerebras API key (optional)</span><input id="provider-key" type="password" aria-describedby="key-hint" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="1024" /></label>
                 <p id="key-hint" class="wide">The project key is available for Cerebras.</p>
+                <div class="wide" id="fallback-setting">
+                  <label class="fallback-toggle">
+                    <input id="allow-fallback" type="checkbox" aria-describedby="fallback-hint" autocomplete="off" />
+                    <span>Allow another Cerebras model if this one is unavailable</span>
+                  </label>
+                  <p id="fallback-hint">Try up to two compatible models with the same key and frame.</p>
+                </div>
               </div>
             </details>
             <section class="request-activity" id="request-activity" aria-label="Request activity" hidden>
