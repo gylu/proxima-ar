@@ -114,7 +114,7 @@ export function serviceError(status, details) {
   );
 }
 
-export function readModelJSON(envelope) {
+function readModelJSON(envelope) {
   if (envelope?.status === 'failed' || envelope?.error) {
     throw serviceError(502, JSON.stringify(envelope.error || {}));
   }
@@ -125,6 +125,10 @@ export function readModelJSON(envelope) {
     .map((part) => part.text)
     .join('')
     .trim();
+  return parseModelText(output);
+}
+
+export function parseModelText(output) {
   try {
     return JSON.parse(output.replace(/^\x60\x60\x60(?:json)?\s*|\s*\x60\x60\x60$/gi, ''));
   } catch {
