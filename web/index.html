@@ -235,6 +235,36 @@
           Tap a component in the frame to pin it, or ask the model to locate one.
         </div>
       </section>
+      <section class="panel throughput" id="throughput" aria-labelledby="throughput-title" hidden>
+        <div class="throughput-head">
+          <h2 id="throughput-title">Token speed</h2>
+          <fieldset class="throughput-switch">
+            <legend class="sr-only">Speed measure</legend>
+            <label><input type="radio" name="throughput-measure" value="effective" checked /><span>Effective</span></label>
+            <label><input type="radio" name="throughput-measure" value="decode" /><span>Decode</span></label>
+          </fieldset>
+        </div>
+        <div class="throughput-stats">
+          <div>
+            <span class="throughput-label">Session max</span>
+            <div class="throughput-peak"><strong id="throughput-max">—</strong><span>tok/s</span></div>
+          </div>
+          <span id="throughput-state">Idle · 0 tok/s</span>
+        </div>
+        <figure class="throughput-figure">
+          <div class="throughput-unit">Tokens/s</div>
+          <div class="throughput-axis-y" aria-hidden="true"><span id="throughput-top"></span><span id="throughput-mid"></span><span>0</span></div>
+          <canvas id="throughput-plot" width="640" height="108" tabindex="0" role="img"
+            aria-label="Output tokens per second over this session"
+            aria-describedby="throughput-help throughput-reading throughput-keys"
+            title="Tap a call to inspect it, or use the arrow keys."></canvas>
+          <div class="throughput-axis-x"><span>0:00</span><span id="throughput-half"></span><span id="throughput-time">0:00</span></div>
+          <figcaption>Time since start <span class="sr-only">(first camera or photo in this tab)</span></figcaption>
+        </figure>
+        <p id="throughput-reading" role="status">Waiting for the first measurement.</p>
+        <p class="throughput-help"><span id="throughput-help">Each mark averages one completed provider call, including its wait.</span> <span id="throughput-missing"></span></p>
+        <span class="sr-only" id="throughput-keys">Tap a mark or use the left and right arrow keys to inspect a call. Escape returns to the session maximum.</span>
+      </section>
       <footer>
         <span><i data-icon="locate-fixed"></i><span id="footer-tracking">Reference coordinates</span></span
         ><button class="text-btn" id="about-btn"><i data-icon="info"></i>Scene details</button>

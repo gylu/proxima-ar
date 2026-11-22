@@ -3,6 +3,7 @@ import { boardManual, readManual, selectExcerpts } from './manual.js';
 import { modelName, providers } from './models.js';
 import { setupModels } from './model-controls.js';
 import { requestActivity, speedLabel } from './request-activity.js';
+import { throughputChart } from './throughput.js';
 import { VoiceInput } from './voice.js';
 import { readEvents } from './stream-events.js';
 
@@ -29,7 +30,8 @@ let dialogKind = '',
   manualTicket = 0;
 const scene = new Scene({ onChange: sceneChanged, onMotion: renderMotion, onNotice: notice });
 let savedFrame = null;
-const activity = requestActivity();
+const throughput = throughputChart();
+const activity = requestActivity(throughput);
 const models = setupModels();
 let voiceState = 'idle', voicePrefix = '';
 const spokenQuestion = (text) => [voicePrefix, text].filter(Boolean).join(' ');
@@ -359,6 +361,7 @@ function switchView() {
   scene.fit();
 }
 function sceneChanged() {
+  if (scene.source !== 'empty') throughput.start();
   if (renderEpoch !== scene.epoch) {
     const hadScene = renderEpoch >= 0 && document.body.dataset.empty === 'false';
     renderEpoch = scene.epoch;
@@ -615,7 +618,7 @@ async function ask(event, repeat = false, voiceFrame) {
     $('latency').textContent = lastAnswer.timing;
     $('latency').hidden = false;
     const answeredBy = modelName(result.provider, result.model) || name;
-    activity.finish('Answer received from ' + answeredBy + '.', result.metrics, true, result.answer);
+    activity.finish('Answer received from ' + answeredBy + '.', result.metrics, true, result.answer, answeredBy);
     if (repeat && sceneHistory.at(-1)?.frameId === frame.frameId) sceneHistory.pop();
     sceneHistory.push({ frameId: frame.frameId, question, answer: result.answer });
     if (sceneHistory.length > 3) sceneHistory.shift();

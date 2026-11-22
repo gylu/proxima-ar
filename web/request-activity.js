@@ -12,7 +12,7 @@ export function speedLabel(m) {
   );
 }
 
-export function requestActivity() {
+export function requestActivity(throughput) {
   let start = 0,
     lastEvent = 0,
     timer,
@@ -61,6 +61,7 @@ export function requestActivity() {
     }
     frameId = id;
     label = modelName(provider, model) + ' · ' + providers[provider].name;
+    throughput.begin(label);
     start = performance.now();
     lastEvent = start;
     running = true;
@@ -157,6 +158,7 @@ export function requestActivity() {
       line('The provider started generating output.');
     }
     if (phase === 'usage') {
+      throughput.record(detail, modelName(detail.provider, detail.model) || label);
       metrics(detail);
       line(
         (detail.model ? modelName(detail.provider, detail.model) + ' · ' : '') +
@@ -185,8 +187,9 @@ export function requestActivity() {
       );
     }
   }
-  function finish(message, m, canRepeat, answer) {
+  function finish(message, m, canRepeat, answer, answeredBy = label) {
     if (!running) return;
+    throughput.finish(m, answeredBy);
     running = false;
     clearInterval(timer);
     tick();
