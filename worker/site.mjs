@@ -3,7 +3,7 @@ const headers = {
   'Cache-Control': 'private, no-store',
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
-  'Permissions-Policy': 'camera=(self), microphone=(), geolocation=()',
+  'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=()',
   'Content-Security-Policy':
     "default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'",
 };
@@ -15,6 +15,8 @@ const unavailable = (stage, status) => {
   return json(503, { code: 'offline', error: 'The private cloud guide is unavailable.' });
 };
 const googleTokenUrl = 'https://oauth2.googleapis.com/token';
+// GAESA is Cloud Run's load-balancing hint. Authentication still requires both service credentials.
+const affinityValue = /^[-a-zA-Z0-9._~%+=/]{1,1024}$/;
 const base64url = (bytes) =>
   btoa(String.fromCharCode(...bytes))
     .replaceAll('=', '')
@@ -76,10 +78,11 @@ async function cloudIdentity(rawCredential, audience, trace) {
   return id_token;
 }
 
-// The product can send exactly one bounded frame or read service status. It cannot proxy other requests.
+// Only the authenticated guide, microphone and status routes can reach Cloud Run.
 async function api(request, url, env) {
   const status = url.pathname === '/api/status';
-  if (url.search || (!status && url.pathname !== '/api/guide')) return json(404, { error: 'Unknown route' });
+  const voice = url.pathname === '/api/voice';
+  if (url.search || (!status && !voice && url.pathname !== '/api/guide')) return json(404, { error: 'Unknown route' });
   if (request.method !== (status ? 'GET' : 'POST')) return json(405, { error: 'Method unavailable' });
   if (
     !status &&
@@ -106,9 +109,10 @@ async function api(request, url, env) {
       return unavailable(trace.stage);
     let body;
     if (!status) {
-      trace.stage = 'frame-read';
+      trace.stage = voice ? 'audio-read' : 'frame-read';
+      const limit = voice ? 40000 : 900000;
       const size = Number(request.headers.get('content-length') || 0);
-      if (size > 900000 || !request.body) return json(413, { error: 'Invalid frame size' });
+      if (size > limit || !request.body) return json(413, { error: 'Invalid request size' });
       const reader = request.body.getReader();
       const chunks = [];
       let count = 0;
@@ -116,9 +120,9 @@ async function api(request, url, env) {
         const { done, value } = await reader.read();
         if (done) break;
         count += value.byteLength;
-        if (count > 900000) {
+        if (count > limit) {
           await reader.cancel();
-          return json(413, { error: 'Invalid frame size' });
+          return json(413, { error: 'Invalid request size' });
         }
         chunks.push(value);
       }
@@ -126,6 +130,7 @@ async function api(request, url, env) {
     }
     const identity = await cloudIdentity(env.PROXIMA_CLOUD_INVOKER, service.origin, trace);
     trace.stage = 'cloud-request';
+    const affinity = voice ? request.headers.get('X-Proxima-Voice-Route') : null;
     const upstream = await fetch(service.origin + url.pathname, {
       method: request.method,
       body,
@@ -134,6 +139,7 @@ async function api(request, url, env) {
       headers: {
         'X-Serverless-Authorization': 'Bearer ' + identity,
         'X-Proxima-Access': env.PROXIMA_SERVICE_TOKEN,
+        ...(affinity && affinityValue.test(affinity) && { Cookie: 'GAESA=' + affinity }),
         'Content-Type': 'application/json',
         Accept: request.headers.get('accept')?.includes('application/x-ndjson')
           ? 'application/x-ndjson'
@@ -146,9 +152,14 @@ async function api(request, url, env) {
       await upstream.body?.cancel();
       return unavailable('cloud-response', upstream.status);
     }
+    const responseHeaders = { ...headers, 'Content-Type': type };
+    if (voice && type === 'application/x-ndjson') {
+      const route = upstream.headers.get('set-cookie')?.match(/(?:^|,\s*)GAESA=([^;,\s]+)/)?.[1];
+      if (route && affinityValue.test(route)) responseHeaders['X-Proxima-Voice-Route'] = route;
+    }
     return new Response(upstream.body, {
       status: upstream.status,
-      headers: { ...headers, 'Content-Type': type },
+      headers: responseHeaders,
     });
   } catch {
     return unavailable(trace.stage, trace.status);

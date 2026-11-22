@@ -1,8 +1,10 @@
 import { Scene, isModelAnchor } from './scene.js';
 import { boardManual, readManual, selectExcerpts } from './manual.js';
-import { modelName, providers, defaultModel } from './models.js';
+import { modelName, providers } from './models.js';
 import { setupModels } from './model-controls.js';
 import { requestActivity, speedLabel } from './request-activity.js';
+import { VoiceInput } from './voice.js';
+import { readEvents } from './stream-events.js';
 
 const $ = (id) => document.getElementById(id);
 const logs = [];
@@ -28,12 +30,25 @@ let dialogKind = '',
 const scene = new Scene({ onChange: sceneChanged, onMotion: renderMotion, onNotice: notice });
 let savedFrame = null;
 const activity = requestActivity();
-const models = setupModels((provider, model) => setAskLabel(provider, model, Boolean(activeRequest)));
-
-function setAskLabel(provider, model, waiting) {
-  const label = provider === 'cerebras' && model === defaultModel ? 'Ask Kimi' : 'Ask model';
-  $('ask-btn').replaceChildren(icon(waiting ? 'loader-circle' : 'send'), node('span', waiting ? 'Asking…' : label));
-}
+const models = setupModels();
+let voiceState = 'idle', voicePrefix = '';
+const spokenQuestion = (text) => [voicePrefix, text].filter(Boolean).join(' ');
+const voice = new VoiceInput({
+  state(stage, message) {
+    voiceState = stage;
+    $('voice-status').hidden = !message;
+    $('voice-status').textContent = message;
+    setWaiting(Boolean(activeRequest));
+  },
+  transcript(text) { $('question').value = spokenQuestion(text); },
+  submit(text, snapshot) {
+    if (snapshot.epoch !== scene.epoch) return;
+    const question = spokenQuestion(text);
+    $('question').value = question;
+    if (question.length > 600) { notice('Shorten the question to 600 characters and press Ask.'); return; }
+    void ask(null, false, snapshot);
+  },
+});
 
 function node(tag, text, cls) {
   const result = document.createElement(tag);
@@ -76,6 +91,10 @@ function setReading(source, title, description, issue = false, glyph = 'book-ope
   $('reading-source').parentElement.classList.toggle('problem', issue);
 }
 function cancelTurn() {
+  if (voice.active) {
+    voice.cancel();
+    $('question').value = voicePrefix;
+  }
   if (activeRequest) {
     activeRequest.controller.abort();
     activeRequest = null;
@@ -84,16 +103,24 @@ function cancelTurn() {
   setWaiting(false);
 }
 function setWaiting(waiting) {
-  $('ask-btn').disabled = waiting || scene.source === 'empty';
-  $('cancel-btn').hidden = !waiting;
+  const busy = waiting || voice.active;
+  $('ask-btn').disabled = busy || scene.source === 'empty';
+  $('cancel-btn').hidden = !busy;
   $('adjust-btn').disabled = waiting;
-  $('input-mode').disabled = waiting;
+  $('input-mode').disabled = busy;
+  $('question').readOnly = voice.active;
   $('ask-btn').classList.toggle('waiting', waiting);
-  models.lock(waiting);
-  const { provider, model } = models.selection();
-  setAskLabel(provider, model, waiting);
+  $('ask-btn').replaceChildren(icon(waiting ? 'loader-circle' : 'send'), node('span', waiting ? 'Asking…' : 'Ask'));
+  const recording = voiceState === 'listening';
+  const micLabel = { opening: 'Opening microphone', listening: 'Finish voice question', finishing: 'Finishing voice question', idle: 'Ask by voice' }[voiceState];
+  $('mic-btn').setAttribute('aria-label', micLabel);
+  $('mic-btn').title = voice.active ? micLabel : 'Ask by voice with Google Cloud transcription';
+  $('mic-btn').setAttribute('aria-pressed', String(recording));
+  $('mic-btn').disabled = waiting || scene.source === 'empty' || (voice.active && !recording);
+  $('mic-btn').replaceChildren(icon(recording ? 'stop' : 'mic'), node('span', recording ? 'Finish' : 'Speak'));
+  models.lock(busy);
   $('ask-form').setAttribute('aria-busy', String(waiting));
-  for (const el of $('suggestions').children) el.disabled = waiting;
+  for (const el of $('suggestions').children) el.disabled = busy;
 }
 function anchorCode(i) {
   return 'A' + String(i + 1).padStart(2, '0');
@@ -284,11 +311,12 @@ function renderView() {
       ? 'Live camera'
       : 'Your photo';
   $('question').placeholder = advanced ? 'Ask about this scene…' : 'How do I…';
-  $('ask-btn').disabled = Boolean(activeRequest) || empty;
+  setWaiting(Boolean(activeRequest));
   if (!activeRequest) referenceReading();
   renderMotion();
 }
 function switchView() {
+  if (voice.active) cancelTurn();
   advanced = location.hash === '#anchors';
   setMoveMode();
   if (!advanced) {
@@ -370,7 +398,7 @@ async function checkRuntime() {
 function elapsedText(ms) {
   return ms < 1000 ? Math.round(ms) + ' ms' : (ms / 1000).toFixed(2) + ' s';
 }
-function captureQuestion(question) {
+function snapshotScene() {
   const mode = advanced && $('input-mode').value === 'anchors' ? 'anchors' : 'image';
   const frame = scene.capture(mode);
   if (!advanced) {
@@ -378,27 +406,31 @@ function captureQuestion(question) {
     frame.anchors = frame.anchors.filter((a) => generated.has(a.id));
     frame.selected = generated.has(frame.selected) ? frame.selected : null;
   }
-  lastExcerpts = selectExcerpts(
-    !advanced && manual === boardManual ? null : manual,
-    question,
-    [selectedAnchor()?.label, sceneHistory.at(-1)?.question].filter(Boolean).join(' '),
-  );
   return {
     epoch: scene.epoch,
     baseline: scene.baseline,
-    payload: { ...frame, contextId, question, excerpts: lastExcerpts, history: sceneHistory.slice(-3) },
+    manual: !advanced && manual === boardManual ? null : manual,
+    cue: [selectedAnchor()?.label, sceneHistory.at(-1)?.question].filter(Boolean).join(' '),
+    payload: { ...frame, contextId, history: sceneHistory.slice(-3) },
   };
 }
 
-async function ask(event, repeat = false) {
-  event.preventDefault();
-  if (activeRequest || scene.source === 'empty') return;
+function captureQuestion(question, snapshot = snapshotScene()) {
+  lastExcerpts = selectExcerpts(snapshot.manual, question, snapshot.cue);
+  return { epoch: snapshot.epoch, baseline: snapshot.baseline, payload: { ...snapshot.payload, question, excerpts: lastExcerpts } };
+}
+
+async function ask(event, repeat = false, voiceFrame) {
+  event?.preventDefault();
+  if (activeRequest || voice.active || scene.source === 'empty') return;
   if (repeat && (!savedFrame || savedFrame.epoch !== scene.epoch)) return;
   const question = repeat ? savedFrame.payload.question : $('question').value.trim();
   if (!question) {
     $('question').focus();
     return;
   }
+  if (question.length > 600) { notice('Shorten the question to 600 characters and press Ask.'); return; }
+  $('voice-status').hidden = true;
   setMoveMode();
   const route = models.selection();
   const name = route.name,
@@ -413,11 +445,12 @@ async function ask(event, repeat = false) {
   let capture, editSetting;
   try {
     if (!repeat) savedFrame = null;
-    capture = repeat ? savedFrame : captureQuestion(question);
+    capture = repeat ? savedFrame : captureQuestion(question, voiceFrame);
     savedFrame = capture;
     const frame = capture.payload;
     const mapOnly = frame.inputMode === 'anchors';
     activity.begin(route.provider, route.model, frame.frameId);
+    if (voiceFrame) activity.line('Voice transcript finalized. Using the scene from when you tapped the microphone.');
     activity.line('Question · ' + question);
     if (route.allowFallback) activity.line('Automatic fallback to a compatible Cerebras model is allowed.');
     activity.line(
@@ -598,31 +631,15 @@ async function readAnswer(response, onProgress) {
       throw new Error('Sign in to the private site and try again.');
     throw new Error('The cloud connection ended before the answer arrived. Retry the saved frame.');
   }
-  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-  let pending = '';
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      pending += value || '';
-      const lines = pending.split('\n');
-      pending = lines.pop();
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        const event = JSON.parse(line);
-        if (event.type === 'progress') onProgress(event.phase, event.detail);
-        if (event.type === 'answer') return event.reply;
-        if (event.type === 'error')
-          throw Object.assign(new Error(event.error), {
-            code: event.code,
-            contextId: event.contextId,
-            providerStatus: event.providerStatus,
-          });
-      }
-      if (done) throw new Error('The connection ended before the answer arrived. Please retry.');
-    }
-  } finally {
-    reader.releaseLock();
+  for await (const event of readEvents(response)) {
+    if (event.type === 'progress') onProgress(event.phase, event.detail);
+    if (event.type === 'answer') return event.reply;
+    if (event.type === 'error')
+      throw Object.assign(new Error(event.error), {
+        code: event.code, contextId: event.contextId, providerStatus: event.providerStatus,
+      });
   }
+  throw new Error('The connection ended before the answer arrived. Please retry.');
 }
 function openDialog(kind, title) {
   dialogKind = kind;
@@ -852,6 +869,20 @@ async function expand() {
 }
 document.querySelectorAll('i[data-icon]').forEach((i) => i.replaceWith(icon(i.dataset.icon)));
 $('ask-form').addEventListener('submit', ask);
+$('mic-btn').onclick = () => {
+  if (voice.active) { voice.finish(); return; }
+  if (activeRequest || scene.source === 'empty') return;
+  const route = models.selection();
+  if (!route.model || (route.provider !== 'cerebras' && !route.apiKey)) {
+    notice(route.model ? 'Enter your provider key to ask a question.' : 'Enter a model ID in Model settings.');
+    models.edit(Boolean(route.model));
+    return;
+  }
+  notice();
+  voicePrefix = $('question').value.trim();
+  try { void voice.start(snapshotScene()); }
+  catch (error) { notice(error.message); }
+};
 $('repeat-frame').onclick = (event) => ask(event, true);
 $('question').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
@@ -982,6 +1013,9 @@ window.addEventListener('pagehide', () => {
   cancelTurn();
   scene.loadId++;
   scene.closeSource();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && voice.active) cancelTurn();
 });
 window.addEventListener('pageshow', (e) => {
   if (e.persisted) scene.showEmpty();

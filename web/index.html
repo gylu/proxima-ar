@@ -169,12 +169,14 @@
                     <option value="image">Frame + anchors</option>
                     <option value="anchors" id="map-option">Anchor map only</option>
                   </select>
-                  <button type="button" class="text-btn" id="cancel-btn" hidden>Cancel</button
-                  ><button class="ask" type="submit" id="ask-btn">
-                    <i data-icon="send"></i><span>Ask Kimi</span>
+                  <button type="button" class="text-btn" id="cancel-btn" hidden>Cancel</button>
+                  <button type="button" id="mic-btn" class="voice-btn" aria-label="Ask by voice" title="Ask by voice" aria-pressed="false" aria-describedby="voice-status">
+                    <i data-icon="mic"></i><span>Speak</span>
                   </button>
+                  <button class="ask" type="submit" id="ask-btn"><i data-icon="send"></i><span>Ask</span></button>
                 </div>
               </div>
+              <p id="voice-status" class="voice-status" role="status" hidden></p>
             </form>
             <details id="model-settings" class="model-settings">
               <summary><span><i data-icon="sliders-horizontal"></i>Model settings</span><span id="model-summary">Kimi K3.1 Pro · Cerebras</span></summary>

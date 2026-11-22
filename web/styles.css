@@ -1257,6 +1257,40 @@ dialog::backdrop {
 #quick-question-label {
   display: none;
 }
+
+.voice-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 42px;
+  padding: 8px 13px;
+  border: 1px solid #32482c;
+  border-radius: 7px;
+  background: #32482c;
+  color: white;
+  font: inherit;
+  font-size: .91rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.voice-btn:hover:enabled { background: #253c20; }
+.voice-btn[aria-pressed='true'] { background: #85402f; border-color: #85402f; }
+.voice-btn:disabled { opacity: .55; cursor: default; }
+.voice-btn svg { width: 18px; height: 18px; }
+.voice-status { color: #40543a; font-size: .9rem; line-height: 1.45; margin: 8px 0 0; }
+.ask-actions .ask, [data-view='guide'] .ask-actions .ask {
+  min-height: 42px;
+  border: 1px solid #b9c2b2;
+  background: white;
+  color: #2c4027;
+}
+.ask-actions .ask:hover:enabled { background: #f0f4ec; }
+@media (max-width: 560px) {
+  [data-view='guide'] .guide-content .composer { grid-template-columns: minmax(0, 1fr); }
+  .ask-actions { flex-wrap: wrap; }
+  [data-view='guide'] .ask-actions { justify-content: flex-end; }
+}
 [data-empty='true'] #empty-view {
   display: flex;
   position: absolute;

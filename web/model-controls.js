@@ -1,7 +1,7 @@
 import { providers, modelName, gptOssModel } from './models.js';
 
 const $ = (id) => document.getElementById(id);
-export function setupModels(onChange) {
+export function setupModels() {
   const providerSelect = $('provider-choice'),
     modelSelect = $('model-choice');
   const custom = $('custom-model'),
@@ -44,7 +44,6 @@ export function setupModels(onChange) {
       'Keys clear on refresh. On Ask, the private cloud uses this provider’s key to send your frame and question to ' +
       providers[provider].name +
       '.';
-    onChange(provider, model);
   }
   function loadProvider() {
     const provider = providerSelect.value,

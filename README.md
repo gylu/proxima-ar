@@ -6,13 +6,15 @@ A visual guide to the hardware in front of you. Upload a photo or point your cam
 
 The [private website](https://proxima.example.invalid) serves the camera UI and its API on one HTTPS origin. Sites handles sign-in and the owner-only access list. The Worker also checks the signed-in visitor against `PROXIMA_OWNER_EMAIL` on every route. A holder of a Site service token still needs a signed-in owner identity to open Proxima or ask a question.
 
-The live-guidance backend is designed for a private Google Cloud Run container. Its application accepts `/api/status` and `/api/guide` from the authenticated Site. OpenClaw listens on loopback inside the container. The gateway has a fresh private workspace under the container’s temporary directory, a read-only configuration, a loopback model relay, and disabled agent tools, browser control, chat commands, and scheduled tasks. The Node process runs as the container’s unprivileged `node` user. A camera stream stays in the browser between questions.
+The live-guidance backend runs in a private Google Cloud Run container. It accepts `/api/status`, `/api/voice` and `/api/guide` from the authenticated Site. OpenClaw listens on loopback inside the container. The gateway has a fresh private workspace under the container’s temporary directory, a read-only configuration, a loopback model relay, and disabled agent tools, browser control, chat commands, and scheduled tasks. The Node process runs as the container’s unprivileged `node` user. A camera stream stays in the browser between questions.
 
 The Worker needs the service’s HTTPS URL, an invocation-only Google service account credential and a separate service token. The container reads `CEREBRAS_API_KEY` and the matching `PROXIMA_SERVICE_TOKEN` from its cloud secret bindings. When the backend is unconfigured, the UI still opens and live answers show as offline. The application has no laptop fallback.
 
 Use `npm test` for the access, model contract and geometry checks and `npm run build` for the standalone Sites Worker. Frontend source lives in `web/`. The Dockerfile and cloud upload allowlists include the Node backend and its text-excerpt helper. Local credentials, prior runtime data and the frontend source bundle are excluded from the container build context.
 
 ### Connect a Cloud Run service
+
+Voice input uses the Google Cloud Speech-to-Text V2 API (`speech.googleapis.com`). Enable it in the Cloud Run project and grant `roles/speech.client` to the runtime service account. The Google client uses that attached identity. The open microphone session and its ordered audio uploads share the existing single-instance Cloud Run service.
 
 In the chosen Google Cloud project, use dedicated `proxima-runtime`, `proxima-build`, and `proxima-invoker` service accounts. Give the runtime account Secret Manager accessor permission on `proxima-cerebras` and `proxima-service-token` only. The build account needs Cloud Run Builder permissions. Run `sh scripts/deploy-cloud.sh PROJECT_ID REGION` from the checkout. It enables Cloud Run’s invoker check, disables anonymous access and scales between zero and one instance. Grant the invoker account `roles/run.invoker` on `proxima-guide` only.
 
@@ -26,11 +28,13 @@ Set `PROXIMA_SERVICE_URL` to the canonical `run.app` service origin in Sites. St
 
 ## Ask about a device
 
-1. In **Visual guide**, choose **Upload photo** or **Use camera**. You can also try the sample Raspberry Pi photo. Ask a question such as “Where do I plug in a monitor?” or “How do I switch the input on this display?”
+1. In **Visual guide**, choose **Upload photo** or **Use camera**. Tap **Speak** and ask a question, or type it and press **Ask**. You can also try the sample Raspberry Pi photo.
 2. Kimi answers from the frame when it can. If it needs the device’s documentation, it identifies the manufacturer, device and topic and asks the companion to look them up. Proxima shows the search in progress, sends the relevant passages back through OpenClaw, and links the documents alongside the answer. If the image does not identify a necessary model number, Kimi can ask for it. An unsuccessful search is shown in the answer.
 3. Ask follow-ups in the same scene. The companion keeps retrieved passages in memory for up to an hour and the browser includes the three most recent exchanges. Replacing the scene starts a fresh conversation. **Session log** keeps the answers, sources and measured response times for the open browser tab.
 
 **Set your own anchors** opens the same scene. Tap a part to name or reposition it, or attach a text-based PDF, TXT or Markdown file under **Field manual**. **Anchor map only** lets Kimi answer from named points without a photo upload. The sample board’s four hand-mapped markers are available in this view.
+
+**Speak** saves the current frame or anchor map in the browser. As you talk, the browser sends short, ordered packets of 16 kHz mono audio to the private service. Google Speech-to-Text streams the transcript back into the question box. A pause or **Finish** closes the audio stream. Proxima sends the confirmed question through OpenClaw with that saved frame, conversation history and relevant manual passages. **Cancel** discards the turn. Each recording lasts up to 45 seconds, and the app keeps audio in memory only.
 
 ## How a question gets answered
 

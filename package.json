@@ -12,6 +12,7 @@
     "build": "node scripts/build-site.mjs"
   },
   "dependencies": {
+    "@google-cloud/speech": "8.2.1",
     "openclaw": "2026.11.6"
   },
   "devDependencies": {

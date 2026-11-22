@@ -13,4 +13,4 @@ gcloud run deploy proxima-guide \
   --build-service-account="projects/$project_id/serviceAccounts/proxima-build@$project_id.iam.gserviceaccount.com" \
   --set-secrets='CEREBRAS_API_KEY=proxima-cerebras:latest,PROXIMA_SERVICE_TOKEN=proxima-service-token:latest' \
   --no-allow-unauthenticated --invoker-iam-check --execution-environment=gen2 \
-  --min=0 --max=1 --concurrency=4 --cpu=2 --memory=2Gi --timeout=180s --quiet
+  --min=0 --max=1 --max-instances=1 --session-affinity --concurrency=4 --cpu=2 --memory=2Gi --timeout=180s --quiet

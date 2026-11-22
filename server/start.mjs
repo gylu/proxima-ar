@@ -12,6 +12,7 @@ import { createGuide } from './guide-loop.mjs';
 import { gatewayConfig } from './openclaw-config.mjs';
 import { selectProvider, totalUsage } from './provider.mjs';
 import { startRelay } from './model-relay.mjs';
+import { createVoiceSessions } from './voice.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const port = Number(process.env.PORT || 8080);
@@ -44,6 +45,7 @@ let harness;
 let gatewayState = 'starting';
 let inFlight = false;
 const recentQuestions = [];
+const voiceSessions = createVoiceSessions();
 
 async function startHarness() {
   const entry = path.join(root, 'node_modules/openclaw/openclaw.mjs');
@@ -95,13 +97,12 @@ async function getState() {
   return gatewayState;
 }
 
-async function parseBody(req) {
+async function parseBody(req, limit = 900_000) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 900_000)
-      throw new GuideError(413, 'frame_size', 'This image is too large. Capture a smaller frame.');
+    if (size > limit) throw new GuideError(413, 'input_size', 'This request is too large.');
     chunks.push(chunk);
   }
   try {
@@ -155,6 +156,11 @@ const server = http.createServer(async (req, res) => {
   }
   try {
     const pathname = req.url;
+    if (pathname === '/api/voice' && req.method === 'POST') {
+      if (req.headers['content-type']?.split(';')[0] !== 'application/json')
+        return send(res, 415, { error: 'JSON required' });
+      return await voiceSessions.handle(await parseBody(req, 40000), res, send);
+    }
     if (pathname === '/api/status' && req.method === 'GET') {
       return send(res, 200, {
         runtime: await getState(),
@@ -277,6 +283,7 @@ startService().catch(() => {
   process.exitCode = 1;
 });
 function close() {
+  voiceSessions.close();
   harness?.kill('SIGTERM');
   relay.close();
   server.close();

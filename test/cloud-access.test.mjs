@@ -78,6 +78,7 @@ test('the cloud relay uses only the configured IAM identity, destination and API
   };
   const seen = [];
   let redirectBackend = false;
+  let voiceRoute = false;
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     seen.push(String(url));
     // Workers implements manual and follow. Credentials must stay with the original destination.
@@ -87,13 +88,16 @@ test('the cloud relay uses only the configured IAM identity, destination and API
       assert.equal(claim.target_audience, service);
       return Response.json({ id_token: 'fixture-id' });
     }
-    assert.equal(String(url), service + '/api/guide');
+    assert.equal(String(url), service + (voiceRoute ? '/api/voice' : '/api/guide'));
     const headers = new Headers(options.headers);
     assert.equal(headers.get('X-Serverless-Authorization'), 'Bearer fixture-id');
     assert.equal(headers.get('X-Proxima-Access'), 'fixture-service');
-    assert.equal(headers.get('Cookie'), null);
+    assert.equal(headers.get('Cookie'), voiceRoute ? 'GAESA=test-route' : null);
     assert.equal(headers.get('Authorization'), null);
     assert.equal(headers.get('oai-authenticated-user-email'), null);
+    if (voiceRoute) return new Response('{"type":"ready"}\n', {
+      headers: { 'Content-Type': 'application/x-ndjson', 'Set-Cookie': 'GAESA=fresh-route; path=/' },
+    });
     if (redirectBackend) {
       return Response.json({}, { status: 307, headers: { Location: 'https://other.example' } });
     }
@@ -120,6 +124,12 @@ test('the cloud relay uses only the configured IAM identity, destination and API
   assert.equal(next.status, 503);
   assert.equal(next.headers.get('Location'), null);
   assert.deepEqual(seen.slice(2), [service + '/api/guide']);
+  voiceRoute = true;
+  const voice = await serveSite(request('/api/voice', { method: 'POST',
+    headers: { ...guideHeaders, Cookie: 'visitor=secret', 'X-Proxima-Voice-Route': 'test-route' },
+    body: '{"action":"start"}' }), settings, assets);
+  assert.equal(voice.headers.get('X-Proxima-Voice-Route'), 'fresh-route');
+  assert.equal(voice.headers.get('Set-Cookie'), null);
 });
 
 test('OpenClaw is loopback-only with no callable agent tools or interactive command surfaces', async () => {
