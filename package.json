@@ -1,0 +1,28 @@
+{
+  "name": "proxima-ar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.16.0 <25 || >=26.1.0"
+  },
+  "scripts": {
+    "start": "node server/start.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "openclaw": "2026.11.6"
+  },
+  "devDependencies": {
+    "@fontsource-variable/instrument-sans": "5.3.0",
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "jsfeat": "0.0.8",
+    "lucide-static": "1.77.0",
+    "pdfjs-dist": "6.5.438"
+  },
+  "overrides": {
+    "openclaw": {
+      "npm": "12.2.3"
+    }
+  }
+}

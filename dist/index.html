@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f7f8f5" />
+    <meta
+      name="description"
+      content="Explore hardware with camera-anchored visual guidance from Kimi on Cerebras."
+    />
+    <title>Spatial workbench · Proxima AR</title>
+    <link rel="icon" href="./assets/proxima.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script defer src="./vendor/jsfeat.min.js"></script>
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="nav-shell">
+        <a class="brand" href="./" aria-label="Proxima AR workspace"
+          ><img src="./assets/proxima.svg" width="35" height="35" alt="" /><span
+            >Proxima<span class="brand-ar">AR</span></span
+          ></a
+        >
+        <nav aria-label="Workbench navigation">
+          <button class="nav-link active" id="workspace-nav" aria-current="page">
+            <i data-icon="scan-line"></i>Workspace
+          </button>
+          <button class="nav-link" id="log-nav"><i data-icon="history"></i>Session log</button>
+        </nav>
+        <button class="connection" id="connection-btn" title="Open runtime connection details">
+          <span class="status-dot" id="status-dot"></span><span id="connection-label">Connection</span
+          ><i data-icon="sliders-horizontal"></i>
+        </button>
+      </div>
+    </header>
+    <main>
+      <div class="page-heading">
+        <div>
+          <h1>Spatial workbench<span class="heading-period">.</span></h1>
+          <p>Explore hardware with guidance anchored to your view.</p>
+        </div>
+        <div class="heading-actions">
+          <button class="btn secondary" id="upload-btn"><i data-icon="image-plus"></i>Open image</button>
+          <button class="btn dark" id="camera-btn"><i data-icon="camera"></i><span>Use camera</span></button>
+          <input id="file" type="file" accept="image/jpeg,image/png,image/webp" hidden />
+        </div>
+      </div>
+      <p role="status" id="notice" class="notice" hidden></p>
+      <div class="workbench">
+        <section class="viewer panel" aria-labelledby="viewer-title" id="viewer">
+          <div class="panel-head">
+            <h2 id="viewer-title"><i data-icon="scan"></i>Scene view</h2>
+            <div class="view-actions">
+              <button id="reference-btn" class="text-btn" hidden>Load reference</button>
+              <button
+                id="overlay-btn"
+                class="icon-btn"
+                title="Hide anchors"
+                aria-label="Hide anchors"
+                aria-pressed="true"
+              >
+                <i data-icon="eye"></i>
+              </button>
+              <button id="expand-btn" class="icon-btn" title="Expand scene" aria-label="Expand scene">
+                <i data-icon="expand"></i>
+              </button>
+            </div>
+          </div>
+          <div class="screen" id="screen">
+            <div class="media-plane" id="plane">
+              <img
+                id="scene-image"
+                src="./assets/raspberry-pi-4.webp"
+                width="1600"
+                height="1067"
+                alt="Raspberry Pi 4 Model B reference board on a graphite work surface"
+              />
+              <video id="video" muted playsinline autoplay hidden></video>
+              <div id="markers"></div>
+            </div>
+            <div class="hud-tag">
+              <span class="hud-lamp"></span><span id="source-tag">REFERENCE FRAME</span>
+            </div>
+            <div class="screen-corners" aria-hidden="true"><b></b><b></b><b></b><b></b></div>
+            <div class="anchor-hint" id="anchor-hint" hidden>Tap a part to add an anchor</div>
+          </div>
+          <div class="view-caption">
+            <div class="scene-caption">
+              <span class="scene-icon"><i data-icon="circuit-board"></i></span>
+              <div>
+                <span class="micro" id="scene-type">REFERENCE SCENE</span
+                ><strong id="scene-title">Raspberry Pi 4 Model B</strong>
+              </div>
+            </div>
+            <span class="frame-size" id="frame-size">1600 × 1067</span>
+          </div>
+        </section>
+        <aside class="guide panel" aria-labelledby="guide-title">
+          <div class="panel-head guide-head">
+            <h2 id="guide-title">
+              <span class="guide-glyph"><i data-icon="scan-eye"></i></span>Spatial guide
+            </h2>
+            <span class="model-pill">KIMI K3.1 PRO</span>
+          </div>
+          <div class="guide-content">
+            <div class="guide-reading" aria-live="polite" aria-atomic="true">
+              <div class="micro reading-source" id="reading-source">
+                <i data-icon="book-open"></i><span>REFERENCE NOTE</span>
+              </div>
+              <h3 id="reading-heading">Micro-HDMI 0</h3>
+              <p id="reading-text">
+                Connect your first monitor to HDMI0, the micro-HDMI socket closest to the USB-C power port.
+              </p>
+              <span class="latency" id="latency" hidden></span>
+              <button class="text-btn adjust" id="adjust-btn" type="button" hidden>Reposition anchor</button>
+            </div>
+            <button id="manual-btn" class="manual-btn">
+              <span class="manual-icon"><i data-icon="book-open"></i></span
+              ><span
+                ><small>Field manual</small><strong id="manual-name">Raspberry Pi setup notes</strong></span
+              ><i data-icon="sliders-horizontal"></i>
+            </button>
+            <input type="file" id="manual-file" accept=".pdf,.txt,.md" hidden />
+            <div class="prompts">
+              <h4>Try a question</h4>
+              <div id="suggestions"></div>
+            </div>
+            <form id="ask-form">
+              <label class="sr-only" for="question">Question about the current frame</label>
+              <div class="composer">
+                <textarea
+                  id="question"
+                  rows="2"
+                  maxlength="600"
+                  placeholder="Ask about this frame…"
+                ></textarea>
+                <div class="ask-actions">
+                  <select
+                    id="input-mode"
+                    aria-label="Input to Kimi"
+                    title="Choose which scene data to send to Kimi"
+                  >
+                    <option value="image">Frame + anchors</option>
+                    <option value="anchors" id="map-option">Anchor map only</option>
+                  </select>
+                  <button type="button" class="text-btn" id="cancel-btn" hidden>Cancel</button
+                  ><button class="ask" type="submit" id="ask-btn">
+                    <i data-icon="send"></i><span>Ask Kimi</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+          <div class="guide-foot">
+            <span class="inference-mark" aria-hidden="true">≋</span>Inference by Cerebras<span
+              class="foot-divider"
+            ></span
+            >OpenClaw
+          </div>
+        </aside>
+      </div>
+      <section class="anchor-section" aria-labelledby="anchors-title">
+        <div class="anchor-head">
+          <h2 id="anchors-title">Scene anchors <span id="anchor-count">4</span></h2>
+          <span class="anchor-desc">Select a component to locate it in the frame.</span>
+        </div>
+        <div id="anchor-list" class="anchor-list"></div>
+        <div id="empty-anchors" hidden>
+          Tap a component in the frame to pin it, or ask Kimi to locate one.
+        </div>
+      </section>
+      <footer>
+        <span><i data-icon="locate-fixed"></i><span id="footer-tracking">Reference coordinates</span></span
+        ><button class="text-btn" id="about-btn"><i data-icon="info"></i>Scene details</button>
+      </footer>
+    </main>
+    <dialog id="dialog">
+      <div class="modal-head">
+        <h2 id="dialog-title"></h2>
+        <button id="close-dialog" class="icon-btn" aria-label="Close dialog"><i data-icon="x"></i></button>
+      </div>
+      <div id="dialog-body" class="modal-body"></div>
+    </dialog>
+  </body>
+</html>
