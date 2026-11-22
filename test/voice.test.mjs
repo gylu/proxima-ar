@@ -1,8 +1,36 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
 import { createVoiceSessions } from '../server/voice.mjs';
 import { serveSite } from '../worker/site.mjs';
+
+test('the microphone can finish a spoken question during a slow connection without stopping on initial silence or a short pause', async () => {
+  const controls = [];
+  let Microphone;
+  runInNewContext(await readFile(new URL('../web/mic-worklet.js', import.meta.url), 'utf8'), {
+    sampleRate: 48000,
+    AudioWorkletProcessor: class {
+      port = { postMessage(message) { if (typeof message === 'string') controls.push(message); } };
+    },
+    registerProcessor(name, processor) { Microphone = processor; },
+  });
+  const mic = new Microphone();
+  const quiet = new Float32Array(4800);
+  const sound = Float32Array.from(quiet, (_, i) => .12 * Math.sin(i * 2 * Math.PI * 220 / 48000));
+  function play(block, count) {
+    for (let i = 0; i < count; i++) mic.process([[block]]);
+  }
+  play(quiet, 25); play(sound, 1); play(quiet, 25);
+  play(sound, 5); play(quiet, 12); play(sound, 3); play(quiet, 19);
+  assert.deepEqual(controls, []);
+  play(quiet, 6);
+  assert.deepEqual(controls, ['pause']);
+  mic.port.onmessage();
+  assert.equal(mic.process([[sound]]), false);
+  assert.deepEqual(controls, ['pause', 'flushed']);
+});
 
 test('Speak freezes once at the gesture, and late microphone permission cannot revive a cancelled turn', async (t) => {
   const grants = [], stages = [], submissions = [];

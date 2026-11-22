@@ -88,6 +88,7 @@ export class VoiceInput {
       s.processor.port.onmessage = ({ data }) => {
         if (s !== this.turn || s.serverEnding || s.captureDone) return;
         if (data === 'flushed') { this.captured(s); return; }
+        if (data === 'pause') { this.finish('Pause detected.'); return; }
         const block = new Uint8Array(data);
         if (s.total + block.length > maxBytes) { this.finish(); return; }
         s.blocks.push(block);
@@ -100,14 +101,19 @@ export class VoiceInput {
       s.source.connect(s.processor).connect(context.destination);
       for (const track of media.getAudioTracks()) track.onended = () => { if (s === this.turn) this.finish(); };
       s.limit = setTimeout(() => this.finish(), 45000);
-      this.state('listening', 'Listening… Pause or tap Finish to send your question.');
+      this.state('listening', 'Listening while cloud transcription connects. Speak now, then pause or tap Finish.', 'cloud transcription to connect');
       const language = navigator.language === 'en' ? 'en-US' : (navigator.language || 'en-US');
       const response = await post({ action: 'start', language }, AbortSignal.any([s.abort.signal, AbortSignal.timeout(95000)]));
       if (!response.headers.get('content-type')?.includes('application/x-ndjson')) throw new Error('The live speech connection could not open. Try again.');
       s.affinity = response.headers.get('X-Proxima-Voice-Route');
       for await (const e of readEvents(response)) {
         if (s !== this.turn) return;
-        if (e.type === 'ready') { s.id = e.id; void this.pump(s); }
+        if (e.type === 'ready') {
+          s.id = e.id;
+          if (s.stopping) this.state('finishing', 'Speech service connected. Transcribing your question…');
+          else this.state('listening', 'Speech service connected. Pause or tap Finish to send your question.');
+          void this.pump(s);
+        }
         if (e.type === 'transcript') this.transcript(e.text);
         if (e.type === 'finishing') this.serverFinishing(s);
         if (e.type === 'error') throw new Error(e.message);
@@ -125,12 +131,14 @@ export class VoiceInput {
       else if (!s.abort.signal.aborted) this.state('idle', micError(error));
     }
   }
-  finish() {
+  finish(reason = '') {
     const s = this.turn;
     if (!s || s.stopping || s.serverEnding) return;
     if (!s.processor) { this.cancel(); return; }
     s.stopping = true;
-    this.state('finishing', 'Finishing the transcript… You can still cancel.');
+    const message = s.id ? 'Finishing the transcript…' : 'Waiting for cloud transcription to connect…';
+    this.state('finishing', [reason, message, 'You can still cancel.'].filter(Boolean).join(' '),
+      s.id ? 'the transcript' : 'cloud transcription to connect');
     s.flushTimer = setTimeout(() => this.captured(s), 250);
     s.processor.port.postMessage('flush');
   }

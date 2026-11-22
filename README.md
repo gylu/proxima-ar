@@ -69,7 +69,7 @@ To see a part, ask “Can you mark the ampersand key?” in **Visual guide**. Pr
 
 **Set your own anchors** opens the same scene. Tap a part to name or reposition it, or attach a text-based PDF, TXT or Markdown file under **Field manual**. **Anchor map only** lets Kimi answer from named points without a photo upload. The sample board’s four hand-mapped markers are available in this view.
 
-During microphone setup and transcription, **Cancel** returns you to the question box. While listening, a pause or **Finish** submits your question, and **Cancel** discards it. While an answer is pending, **Speak again** starts a new voice question and **Cancel answer** stops waiting for the current one. Each recording lasts up to 45 seconds. The browser sends ordered packets of 16 kHz mono audio and keeps audio in memory only.
+During microphone setup and transcription, **Cancel** returns you to the question box. After hearing speech, the browser can stop recording on two quiet seconds, even while cloud transcription is connecting. You can also tap **Finish**. Proxima submits the confirmed transcript, and **Cancel** discards a voice turn before submission. While an answer is pending, **Speak again** starts a new voice question and **Cancel answer** stops waiting for the current one. Each recording lasts up to 45 seconds. The browser sends ordered packets of 16 kHz mono audio and keeps audio in memory only.
 
 ## Camera tracking and document lookup
 

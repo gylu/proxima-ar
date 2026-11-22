@@ -118,7 +118,7 @@ export function requestActivity(throughput) {
   }
   function progress(phase, detail) {
     if (phase === 'waiting') {
-      line('Waiting for ' + stage + '…');
+      if (performance.now() - lastEvent > 6500) line('Waiting for ' + stage + '…');
       return;
     }
     if (phase === 'accepted') {

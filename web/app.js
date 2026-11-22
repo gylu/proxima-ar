@@ -41,15 +41,16 @@ const models = setupModels();
 let voiceState = 'idle', voicePrefix = '';
 const spokenQuestion = (text) => [voicePrefix, text].filter(Boolean).join(' ');
 const voice = new VoiceInput({
-  state(stage, message) {
-    const previous = voiceState;
+  state(stage, message, awaiting) {
+    const changed = stage !== voiceState || message !== $('voice-status').textContent;
+    const wasActive = voiceState !== 'idle';
     voiceState = stage;
     $('voice-status').hidden = !message;
     $('voice-status').textContent = message;
-    if (stage !== previous) {
+    if (changed) {
       const waitingFor = { opening: 'microphone permission', listening: 'your question', finishing: 'the transcript' };
-      if (waitingFor[stage]) activity.waitFor(waitingFor[stage], message);
-      else if (message) activity.finish(message, null, false);
+      if (waitingFor[stage]) activity.waitFor(awaiting || waitingFor[stage], message);
+      else if (wasActive && message) activity.finish(message, null, false);
     }
     setWaiting(Boolean(activeRequest));
   },
