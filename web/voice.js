@@ -61,16 +61,18 @@ export class VoiceInput {
     this.clear(s);
     this.state('idle', message);
   }
-  async start(snapshot) {
+  async start(takeSnapshot) {
     if (this.active) return;
     if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext || !window.AudioWorkletNode) {
       this.state('idle', 'This browser cannot stream microphone audio. You can type your question.');
       return;
     }
-    const s = { snapshot, abort: new AbortController(), blocks: [], queued: 0, total: 0, seq: 0 };
-    this.turn = s;
-    this.state('opening', 'Opening your microphone for Google Cloud transcription…');
+    const s = { abort: new AbortController(), blocks: [], queued: 0, total: 0, seq: 0 };
     try {
+      // Freeze the scene synchronously in the Speak gesture, before the permission prompt.
+      const snapshot = takeSnapshot();
+      this.turn = s;
+      this.state('opening', 'Opening your microphone. Allow access if your browser asks, or tap Cancel.');
       const context = new AudioContext();
       s.context = context;
       // Resume inside the tap for mobile browsers. Do not retain a late permission grant after Cancel.
@@ -79,8 +81,9 @@ export class VoiceInput {
       const media = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }, video: false });
       if (this.turn !== s) { media.getTracks().forEach((t) => t.stop()); return; }
       s.media = media;
-      await Promise.all([resume, context.audioWorklet.addModule('./mic-worklet.js')]);
+      await Promise.all([resume, context.audioWorklet.addModule(new URL('./mic-worklet.js', import.meta.url))]);
       if (this.turn !== s) return;
+      if (document.hidden) { this.cancel('Return to this tab and tap Speak to use the microphone.'); return; }
       s.processor = new AudioWorkletNode(context, 'proxima-microphone', { channelCount: 1, channelCountMode: 'explicit' });
       s.processor.port.onmessage = ({ data }) => {
         if (s !== this.turn || s.serverEnding || s.captureDone) return;
@@ -97,7 +100,7 @@ export class VoiceInput {
       s.source.connect(s.processor).connect(context.destination);
       for (const track of media.getAudioTracks()) track.onended = () => { if (s === this.turn) this.finish(); };
       s.limit = setTimeout(() => this.finish(), 45000);
-      this.state('listening', 'Listening… Pause to ask, or tap Finish.');
+      this.state('listening', 'Listening… Pause or tap Finish to send your question.');
       const language = navigator.language === 'en' ? 'en-US' : (navigator.language || 'en-US');
       const response = await post({ action: 'start', language }, AbortSignal.any([s.abort.signal, AbortSignal.timeout(95000)]));
       if (!response.headers.get('content-type')?.includes('application/x-ndjson')) throw new Error('The live speech connection could not open. Try again.');
@@ -109,15 +112,17 @@ export class VoiceInput {
         if (e.type === 'finishing') this.serverFinishing(s);
         if (e.type === 'error') throw new Error(e.message);
         if (e.type === 'final') {
+          if (!e.text?.trim()) { this.cancel('No speech was recognized. Tap Speak to try again.'); return; }
           this.clear(s);
           this.state('idle', '');
-          if (e.text?.trim()) this.submit(e.text.trim(), snapshot);
+          this.submit(e.text.trim(), snapshot);
           return;
         }
       }
       throw new Error('The live transcript ended early. Review the question and press Ask.');
     } catch (error) {
       if (this.turn === s) this.cancel(micError(error));
+      else if (!s.abort.signal.aborted) this.state('idle', micError(error));
     }
   }
   finish() {
@@ -125,7 +130,7 @@ export class VoiceInput {
     if (!s || s.stopping || s.serverEnding) return;
     if (!s.processor) { this.cancel(); return; }
     s.stopping = true;
-    this.state('finishing', 'Finishing your question…');
+    this.state('finishing', 'Finishing the transcript… You can still cancel.');
     s.flushTimer = setTimeout(() => this.captured(s), 250);
     s.processor.port.postMessage('flush');
   }
@@ -139,7 +144,7 @@ export class VoiceInput {
     s.serverEnding = true;
     s.blocks.length = 0;
     this.releaseMic(s);
-    this.state('finishing', 'Finishing your question…');
+    this.state('finishing', 'Finishing the transcript… You can still cancel.');
   }
   async pump(s) {
     if (s !== this.turn || !s.id || s.sending || s.serverEnding || s.sentFinish) return;

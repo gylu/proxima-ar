@@ -341,10 +341,19 @@ nav {
   box-shadow: 0 1px 5px #0002;
 }
 .hud-lamp {
-  width: 6px;
-  height: 6px;
-  background: var(--reticle);
-  border-radius: 1px;
+  width: 9px;
+  height: 9px;
+  background: #fff;
+  border-radius: 2px;
+}
+.capture-caption, .hud-tag.captured #source-tag { display: none; }
+.hud-tag.captured .capture-caption { display: inline; }
+.hud-tag.captured .hud-lamp { background: #ff574c; box-shadow: 0 0 0 2px #ff574c55; }
+@media (prefers-reduced-motion: no-preference) {
+  .hud-tag:not(.captured) .hud-lamp { animation: preview-light 3s ease-in-out infinite; }
+  .hud-tag.captured .hud-lamp { animation: capture-light .22s ease-out; }
+  @keyframes preview-light { 50% { opacity: .6; } }
+  @keyframes capture-light { from { background: white; } 25% { background: #ff574c; transform: scale(1.3); } }
 }
 .screen-corners {
   position: absolute;
@@ -1276,9 +1285,11 @@ dialog::backdrop {
 }
 .voice-btn:hover:enabled { background: #253c20; }
 .voice-btn[aria-pressed='true'] { background: #85402f; border-color: #85402f; }
-.voice-btn:disabled { opacity: .55; cursor: default; }
 .voice-btn svg { width: 18px; height: 18px; }
 .voice-status { color: #40543a; font-size: .9rem; line-height: 1.45; margin: 8px 0 0; }
+#capture-hint { display: block; margin-top: 8px; color: var(--muted); font-size: .82rem; }
+[data-empty='true'] #capture-hint { display: none; }
+#cancel-btn { min-height: 44px; }
 .ask-actions .ask, [data-view='guide'] .ask-actions .ask {
   min-height: 42px;
   border: 1px solid #b9c2b2;
@@ -1483,6 +1494,8 @@ dialog::backdrop {
   outline-offset: 1px;
 }
 [data-view='guide'] .ask-actions {
+  display: grid;
+  grid-template-columns: minmax(6rem, max-content) minmax(5rem, max-content);
   align-self: stretch;
   align-items: center;
 }
@@ -1967,6 +1980,7 @@ details[open] > summary::after {
 }
 #throughput-reading { font-weight: 590; }
 .throughput-help { color: var(--muted); margin-top: 2px; }
+.capture-diamond { display: inline-block; width: .55em; height: .55em; background: #b43729; transform: rotate(45deg); }
 
 .request-breakdown {
   margin-top: 16px;

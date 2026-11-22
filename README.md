@@ -32,7 +32,9 @@ flowchart TB
     lookup <--->|"Query and excerpts"| docs["Parallel Search MCP<br/>Manufacturer manuals"]
 ```
 
-The browser captures a frame when you ask a question. It uses JSFeat to track a returned marker as the camera moves. For a spoken question, the backend streams audio to Speech-to-Text, and the browser submits the finished transcript with the saved frame. If the model requests a manual, the guidance API retrieves relevant passages and sends them through OpenClaw for a second answer.
+The camera opens in preview. Pressing **Speak** freezes one picture immediately, before microphone permission or transcription. Pressing **Ask** with a typed question (or submitting it with Enter) freezes one picture at submission. The white square in the upper left flashes red and reads **Frame captured**. Request activity records the action and local time. The token-speed timeline adds a red diamond for each capture. Repeating a question uses the original picture, and **Anchor map only** sends coordinates and labels.
+
+For voice questions, the backend streams audio to Speech-to-Text. When the transcript is ready, the browser sends it with the picture from the initial tap. Cancelling before submission keeps that picture on the device. JSFeat reads small camera images locally while waiting for a target or following a marker. If the model requests a manual, the guidance API retrieves relevant passages and sends them through OpenClaw for a second answer.
 
 ## Public demo and usage limits
 
@@ -67,7 +69,7 @@ To see a part, ask “Can you mark the ampersand key?” in **Visual guide**. Pr
 
 **Set your own anchors** opens the same scene. Tap a part to name or reposition it, or attach a text-based PDF, TXT or Markdown file under **Field manual**. **Anchor map only** lets Kimi answer from named points without a photo upload. The sample board’s four hand-mapped markers are available in this view.
 
-**Speak** saves the current frame or anchor map in the browser. As you talk, the browser sends short, ordered packets of 16 kHz mono audio to the private service. Google Speech-to-Text streams the transcript back into the question box. A pause or **Finish** closes the audio stream. Proxima sends the confirmed question through OpenClaw with that saved frame, conversation history and relevant manual passages. **Cancel** discards the turn. Each recording lasts up to 45 seconds, and the app keeps audio in memory only.
+During microphone setup and transcription, **Cancel** returns you to the question box. While listening, a pause or **Finish** submits your question, and **Cancel** discards it. While an answer is pending, **Speak again** starts a new voice question and **Cancel answer** stops waiting for the current one. Each recording lasts up to 45 seconds. The browser sends ordered packets of 16 kHz mono audio and keeps audio in memory only.
 
 ## Camera tracking and document lookup
 

@@ -5,6 +5,24 @@ import { SpeedSession, elapsedLabel } from '../web/throughput.js';
 const report = (tokensPerSecond, decodeTokensPerSecond, providerMs = 220) =>
   ({ calls: 1, tokensPerSecond, decodeTokensPerSecond, providerMs });
 
+test('capture markers keep gesture time through cancelled voice, retries and idle preview', () => {
+  const s = new SpeedSession();
+  s.start(1000);
+  s.begin('Kimi', 1620);
+  s.capture('Camera frame captured · Speak', 1620);
+  s.finish(null, 'Kimi', 5000);
+  s.begin('Kimi', 7000);
+  s.capture('Camera frame captured · Ask', 7000);
+  s.record(report(200, 500), 'Kimi', 8010);
+  s.finish(null, 'Kimi', 8900);
+  s.begin('Kimi', 9000); // Repeat sends the same image.
+  s.finish(null, 'Kimi', 9500);
+  assert.deepEqual(s.captures.map((point) => point.at), [620, 6000]);
+  assert.equal(s.calls.length, 1);
+  assert.equal(s.max.decode.decode, 500);
+  assert.equal(s.elapsed(30_000), 29_000);
+});
+
 test('a running camera keeps elapsed time and independent session peaks through questions and idle time', () => {
   const s = new SpeedSession();
   s.start(100);

@@ -15,8 +15,8 @@ function canvasOf(source, width, height, maxSize = 960) {
 export const isModelAnchor = (anchor) => anchor.group === 'Model target' || anchor.group === 'Kimi target';
 
 export class Scene {
-  constructor({ onChange, onMotion, onNotice }) {
-    Object.assign(this, { onChange, onMotion, onNotice });
+  constructor({ onChange, onMotion, onNotice, awaitingTarget }) {
+    Object.assign(this, { onChange, onMotion, onNotice, awaitingTarget });
     this.image = byId('scene-image');
     this.video = byId('video');
     this.screen = byId('screen');
@@ -184,8 +184,6 @@ export class Scene {
     this.height = incoming.videoHeight;
     this.anchors = [];
     this.selected = null;
-    this.tracker = new FrameTracker(this.width, this.height);
-    this.tracker.seed(incoming);
     this.configureView();
     const liveTrack = stream.getVideoTracks()[0];
     liveTrack.onended = () => {
@@ -203,9 +201,11 @@ export class Scene {
       this.width = incoming.videoWidth;
       this.height = incoming.videoHeight;
       const previous = this.tracker;
-      this.tracker = new FrameTracker(this.width, this.height);
-      this.tracker.seed(incoming);
-      this.tracker.resumeCamera(previous, this.anchors);
+      if (previous) {
+        this.tracker = new FrameTracker(this.width, this.height);
+        this.tracker.seed(incoming);
+        this.tracker.resumeCamera(previous, this.anchors);
+      }
       this.positions.clear();
       this.configureView();
     };
@@ -213,7 +213,8 @@ export class Scene {
       lastTick = 0;
     const tick = (now) => {
       if (this.stream !== stream) return;
-      if (now - lastTick >= 31 && incoming.readyState >= 2 && incoming.currentTime !== previousTime) {
+      const tracking = this.tracker && (this.anchors.length || this.awaitingTarget());
+      if (tracking && now - lastTick >= 31 && incoming.readyState >= 2 && incoming.currentTime !== previousTime) {
         previousTime = incoming.currentTime;
         lastTick = now;
         this.tracker.update(incoming);
@@ -245,13 +246,16 @@ export class Scene {
   }
 
   rebase(frame) {
-    if (!this.tracker) return;
+    if (this.source !== 'camera') return;
     this.baseline++;
-    this.tracker.update(frame);
-    this.updatePositions();
-    for (const a of this.anchors) {
-      const point = this.position(a);
-      if (point) Object.assign(a, point);
+    if (!this.tracker) this.tracker = new FrameTracker(this.width, this.height);
+    else {
+      this.tracker.update(frame);
+      this.updatePositions();
+      for (const a of this.anchors) {
+        const point = this.position(a);
+        if (point) Object.assign(a, point);
+      }
     }
     this.tracker.seed(frame);
     this.positions.clear();

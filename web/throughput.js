@@ -1,5 +1,4 @@
-// Times are monotonic milliseconds on this device. Store calls and question
-// boundaries only; an hour of idle video needs no additional samples.
+// Store discrete events on the device's monotonic clock. Idle video adds no samples.
 const fields = { effective: 'tokensPerSecond', decode: 'decodeTokensPerSecond' };
 const rateFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
 export function formatRate(rate) {
@@ -18,6 +17,7 @@ export class SpeedSession {
   active = null;
   runs = [];
   calls = [];
+  captures = [];
   max = { effective: null, decode: null };
   missing = { effective: 0, decode: 0 };
 
@@ -34,6 +34,11 @@ export class SpeedSession {
     const start = this.elapsed(now);
     this.active = { start, end: null, label, lastCallEnd: start, reports: 0 };
     this.runs.push(this.active);
+  }
+
+  capture(label, now) {
+    this.start(now);
+    this.captures.push({ at: this.elapsed(now), label });
   }
 
   record(metrics, label, now) {
@@ -121,11 +126,26 @@ export function throughputChart() {
       context.arc(right, top, 2.7, 0, Math.PI * 2);
       context.fill();
     }
-    if (selected && selected[measure] !== null) {
+    if (Number.isFinite(selected?.[measure])) {
       context.beginPath();
       context.arc(x(selected.end), y(selected[measure]), 5, 0, Math.PI * 2);
       context.strokeStyle = '#263d1c';
       context.lineWidth = 1.5;
+      context.stroke();
+    }
+    for (const capture of session.captures) {
+      const cx = x(capture.at), cy = floor - 1;
+      const size = selected === capture ? 5 : 3.5;
+      context.beginPath();
+      context.moveTo(cx, cy - size);
+      context.lineTo(cx + size, cy);
+      context.lineTo(cx, cy + size);
+      context.lineTo(cx - size, cy);
+      context.closePath();
+      context.fillStyle = '#b43729';
+      context.fill();
+      context.strokeStyle = '#fff';
+      context.lineWidth = 1;
       context.stroke();
     }
   }
@@ -144,7 +164,9 @@ export function throughputChart() {
     get('throughput-state').classList.toggle('working', Boolean(session.active));
     const reading = get('throughput-reading');
     let description;
-    if (shown) {
+    if (selected?.at != null) {
+      description = selected.label + ' at ' + elapsedLabel(selected.at) + ' since start.';
+    } else if (shown) {
       const rate = shown[measure] == null ? 'Rate unavailable' : formatRate(shown[measure]) + ' tok/s';
       description = (selected ? rate + ' · ' : 'Max · ') + shown.label + ' at ' + elapsedLabel(shown.end);
     } else {
@@ -175,8 +197,8 @@ export function throughputChart() {
       measure = input.value;
       selected = null;
       get('throughput-help').textContent = measure === 'decode'
-        ? 'Each mark uses the generation time reported by the provider.'
-        : 'Each mark averages one completed provider call, including its wait.';
+        ? 'Each green mark uses the generation time reported by the provider.'
+        : 'Each green mark averages one completed provider call, including its wait.';
       render();
     });
   }
@@ -187,22 +209,30 @@ export function throughputChart() {
     const time = (event.clientX - rect.left - inset) * msPerPixel;
     let nearest = 16 * msPerPixel;
     selected = null;
-    for (const call of session.calls) {
-      const distance = Math.max(0, call.start - time, time - call.end);
-      if (distance <= nearest && call[measure] !== null) { nearest = distance; selected = call; }
+    if (rect.bottom - event.clientY < 16) {
+      for (const capture of session.captures) {
+        const distance = Math.abs(capture.at - time);
+        if (distance <= nearest) { nearest = distance; selected = capture; }
+      }
+    }
+    if (!selected) {
+      for (const call of session.calls) {
+        const distance = Math.max(0, call.start - time, time - call.end);
+        if (distance <= nearest && call[measure] !== null) { nearest = distance; selected = call; }
+      }
     }
     render();
   });
   canvas.addEventListener('keydown', (event) => {
     if (!['ArrowLeft', 'ArrowRight', 'Escape'].includes(event.key)) return;
     event.preventDefault();
-    const calls = session.calls;
-    if (event.key === 'Escape' || !calls.length) selected = null;
+    const events = [...session.calls, ...session.captures].sort((a, b) => (a.at ?? a.end) - (b.at ?? b.end));
+    if (event.key === 'Escape' || !events.length) selected = null;
     else {
-      const index = calls.indexOf(selected);
-      const next = index < 0 ? (event.key === 'ArrowRight' ? 0 : calls.length - 1)
-        : Math.max(0, Math.min(calls.length - 1, index + (event.key === 'ArrowRight' ? 1 : -1)));
-      selected = calls[next];
+      const index = events.indexOf(selected);
+      const next = index < 0 ? (event.key === 'ArrowRight' ? 0 : events.length - 1)
+        : Math.max(0, Math.min(events.length - 1, index + (event.key === 'ArrowRight' ? 1 : -1)));
+      selected = events[next];
     }
     render();
   });
@@ -214,7 +244,12 @@ export function throughputChart() {
   document.addEventListener('visibilitychange', syncClock);
   return {
     start,
-    begin(label) { start(); session.begin(label, performance.now()); render(); },
+    begin(label, now = performance.now()) { start(); session.begin(label, now); render(); },
+    capture(label, now) {
+      session.capture(label, now);
+      get('capture-count').textContent = String(session.captures.length);
+      render();
+    },
     record(metrics, label) { session.record(metrics, label, performance.now()); render(); },
     finish(metrics, label) { session.finish(metrics, label, performance.now()); render(); },
   };

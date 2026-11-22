@@ -4,6 +4,47 @@ import { EventEmitter } from 'node:events';
 import { createVoiceSessions } from '../server/voice.mjs';
 import { serveSite } from '../worker/site.mjs';
 
+test('Speak freezes once at the gesture, and late microphone permission cannot revive a cancelled turn', async (t) => {
+  const grants = [], stages = [], submissions = [];
+  let captures = 0, stops = 0;
+  class AudioContext {
+    resume() { return Promise.resolve(); }
+    close() { return Promise.resolve(); }
+  }
+  const browser = {
+    document: { querySelector: () => null }, location: { origin: 'https://example.test' },
+    AudioContext, window: { AudioContext, AudioWorkletNode: class {} },
+    navigator: { mediaDevices: { getUserMedia: () => new Promise((resolve) => grants.push(resolve)) } },
+  };
+  for (const [key, value] of Object.entries(browser)) {
+    const prior = Object.getOwnPropertyDescriptor(globalThis, key);
+    Object.defineProperty(globalThis, key, { configurable: true, value });
+    t.after(() => { if (prior) Object.defineProperty(globalThis, key, prior); else delete globalThis[key]; });
+  }
+  const { VoiceInput } = await import('../web/voice.js');
+  const voice = new VoiceInput({ state: (stage) => stages.push(stage), submit: (...args) => submissions.push(args) });
+  const take = () => ({ id: ++captures });
+  const media = { getTracks: () => [{ stop() { stops++; } }] };
+  const first = voice.start(take);
+  await voice.start(take); // A repeated start during permission cannot take a second snapshot.
+  assert.equal(captures, 1);
+  voice.cancel();
+  const second = voice.start(take);
+  grants[0](media);
+  await first;
+  assert.equal(voice.active, true);
+  assert.equal(stops, 1);
+  voice.cancel();
+  grants[1](media);
+  await second;
+  assert.deepEqual(stages, ['opening', 'idle', 'opening', 'idle']);
+  assert.equal(stops, 2);
+  delete browser.window.AudioWorkletNode;
+  await voice.start(take);
+  assert.equal(captures, 2);
+  assert.deepEqual(submissions, []);
+});
+
 function fixture() {
   const stream = new EventEmitter(), res = new EventEmitter(), events = [], writes = [];
   Object.assign(stream, {

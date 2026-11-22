@@ -34,8 +34,7 @@ export function requestActivity(throughput) {
   const list = $('activity-lines'),
     headerRate = $('activity-rate'),
     comparison = $('frame-comparison');
-  function line(message) {
-    const now = performance.now();
+  function line(message, now = performance.now()) {
     const follow = list.scrollHeight - list.scrollTop - list.clientHeight < 30;
     const item = document.createElement('li'),
       time = document.createElement('time');
@@ -63,7 +62,7 @@ export function requestActivity(throughput) {
     $('request-activity').hidden = true;
     $('repeat-frame').hidden = true;
   }
-  function begin(provider, model, id) {
+  function begin(provider, model, id, now = performance.now()) {
     clearInterval(timer);
     if (frameId !== id) {
       results = [];
@@ -72,8 +71,8 @@ export function requestActivity(throughput) {
     }
     frameId = id;
     label = modelName(provider, model) + ' · ' + providers[provider].name;
-    throughput.begin(label);
-    start = performance.now();
+    throughput.begin(label, now);
+    start = now;
     lastEvent = start;
     running = true;
     stage = 'the private cloud service';
@@ -83,9 +82,13 @@ export function requestActivity(throughput) {
     $('repeat-frame').hidden = true;
     reports = [];
     metrics(null);
-    line(label);
+    line(label, now);
     tick();
     timer = setInterval(tick, 1000);
+  }
+  function waitFor(next, message) {
+    stage = next;
+    line(message);
   }
   function measuredSoFar() {
     if (!reports.length) return null;
@@ -260,5 +263,5 @@ export function requestActivity(throughput) {
     });
     comparison.replaceChildren(title, ...rows);
   }
-  return { begin, line, progress, finish, reset };
+  return { begin, line, waitFor, progress, finish, reset };
 }

@@ -106,8 +106,9 @@
               <video id="video" muted playsinline autoplay hidden></video>
               <div id="markers"></div>
             </div>
-            <div class="hud-tag">
-              <span class="hud-lamp"></span><span id="source-tag">REFERENCE FRAME</span>
+            <div class="hud-tag" id="capture-indicator">
+              <span class="hud-lamp" aria-hidden="true"></span><span id="source-tag">REFERENCE FRAME</span>
+              <span class="capture-caption">FRAME CAPTURED</span>
             </div>
             <div class="screen-corners" aria-hidden="true"><b></b><b></b><b></b><b></b></div>
             <div class="anchor-hint" id="anchor-hint" hidden>Tap a part to add an anchor</div>
@@ -177,14 +178,15 @@
                     <option value="image">Frame + anchors</option>
                     <option value="anchors" id="map-option">Anchor map only</option>
                   </select>
-                  <button type="button" class="text-btn" id="cancel-btn" hidden>Cancel</button>
-                  <button type="button" id="mic-btn" class="voice-btn" aria-label="Ask by voice" title="Ask by voice" aria-pressed="false" aria-describedby="voice-status">
+                  <button type="button" id="mic-btn" class="voice-btn" aria-label="Speak a question about this frame" title="Speak a question about this frame" aria-pressed="false" aria-describedby="voice-status">
                     <i data-icon="mic"></i><span>Speak</span>
                   </button>
                   <button class="ask" type="submit" id="ask-btn"><i data-icon="send"></i><span>Ask</span></button>
+                  <button type="button" class="text-btn" id="cancel-btn" hidden>Cancel</button>
                 </div>
               </div>
               <p id="voice-status" class="voice-status" role="status" hidden></p>
+              <small id="capture-hint">The white square flashes red when Speak or Ask captures a picture.</small>
               <small id="public-allowance" hidden>Public demo · 25 questions and 5 minutes of voice shared daily. Resets at 00:00 UTC.</small>
             </form>
             <details id="model-settings" class="model-settings">
@@ -257,15 +259,16 @@
           <div class="throughput-unit">Tokens/s</div>
           <div class="throughput-axis-y" aria-hidden="true"><span id="throughput-top"></span><span id="throughput-mid"></span><span>0</span></div>
           <canvas id="throughput-plot" width="640" height="108" tabindex="0" role="img"
-            aria-label="Output tokens per second over this session"
-            aria-describedby="throughput-help throughput-reading throughput-keys"
-            title="Tap a call to inspect it, or use the arrow keys."></canvas>
+            aria-label="Output tokens per second and frame captures over this session"
+            aria-describedby="throughput-help capture-legend throughput-reading throughput-keys"
+            title="Tap a capture or model call, or use the arrow keys."></canvas>
           <div class="throughput-axis-x"><span>0:00</span><span id="throughput-half"></span><span id="throughput-time">0:00</span></div>
           <figcaption>Time since start <span class="sr-only">(first camera or photo in this tab)</span></figcaption>
         </figure>
         <p id="throughput-reading" role="status">Waiting for the first measurement.</p>
-        <p class="throughput-help"><span id="throughput-help">Each mark averages one completed provider call, including its wait.</span> <span id="throughput-missing"></span></p>
-        <span class="sr-only" id="throughput-keys">Tap a mark or use the left and right arrow keys to inspect a call. Escape returns to the session maximum.</span>
+        <p class="throughput-help" id="capture-legend"><span class="capture-diamond" aria-hidden="true"></span> Frame captures (<span id="capture-count">0</span>)</p>
+        <p class="throughput-help"><span id="throughput-help">Each green mark averages one completed provider call, including its wait.</span> <span id="throughput-missing"></span></p>
+        <span class="sr-only" id="throughput-keys">Tap a mark or use the left and right arrow keys to inspect a capture or a model call. Escape returns to the session maximum.</span>
         <section class="request-breakdown" id="speed-metrics" aria-labelledby="request-speed-title" hidden>
           <div class="breakdown-heading">
             <h3 id="request-speed-title">Latest request</h3>
