@@ -1,14 +1,23 @@
-import { modelName, providers } from './models.js';
+import { modelName, providers, totalUsage } from './models.js';
+import { formatRate } from './throughput.js';
 const $ = (id) => document.getElementById(id);
 const number = (n) => n.toLocaleString(undefined, { maximumFractionDigits: 1 });
 const seconds = (ms) => (ms / 1000).toFixed(1) + ' s';
+const reported = (value) => Number.isFinite(value) && value >= 0;
+const rateText = (rate) => formatRate(rate) + ' tok/s';
+
+function duration(ms) {
+  if (ms > 0 && ms < 1) return '<1 ms';
+  if (ms < 1000) return Math.round(ms) + ' ms';
+  return (ms / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 }) + ' s';
+}
 
 export function speedLabel(m) {
-  if (!m || m.tokensPerSecond == null) return 'Output speed unavailable';
+  if (!reported(m?.tokensPerSecond)) return 'Output speed unavailable';
   return (
-    number(m.tokensPerSecond) +
+    formatRate(m.tokensPerSecond) +
     ' effective tok/s' +
-    (m.decodeTokensPerSecond == null ? '' : ' · ' + number(m.decodeTokensPerSecond) + ' decode tok/s')
+    (reported(m.decodeTokensPerSecond) ? ' · ' + formatRate(m.decodeTokensPerSecond) + ' decode tok/s' : '')
   );
 }
 
@@ -20,9 +29,10 @@ export function requestActivity(throughput) {
     label = '',
     stage = '',
     frameId = '',
-    results = [];
+    results = [],
+    reports = [];
   const list = $('activity-lines'),
-    speed = $('speed-metrics'),
+    headerRate = $('activity-rate'),
     comparison = $('frame-comparison');
   function line(message) {
     const now = performance.now();
@@ -44,6 +54,7 @@ export function requestActivity(throughput) {
   function reset() {
     clearInterval(timer);
     running = false;
+    reports = [];
     frameId = '';
     results = [];
     list.replaceChildren();
@@ -70,19 +81,37 @@ export function requestActivity(throughput) {
     $('request-activity').hidden = false;
     $('activity-details').open = true;
     $('repeat-frame').hidden = true;
-    speed.textContent = 'Output speed pending';
-    speed.title = 'A rate appears when the provider reports token usage.';
+    reports = [];
+    metrics(null);
     line(label);
     tick();
     timer = setInterval(tick, 1000);
   }
-  function metrics(m) {
-    speed.textContent =
-      speedLabel(m) +
-      (m?.outputTokens == null ? '' : ' · ' + number(m.outputTokens) + ' output tokens') +
-      (m?.calls > 1 ? ' across ' + m.calls + ' model calls' : '');
-    speed.title =
-      'Effective speed divides output tokens by successful provider request time, including its wait. Decode speed uses generation time reported by the provider. Both sum completed model calls.';
+  function measuredSoFar() {
+    if (!reports.length) return null;
+    return reports.length === 1 ? reports[0] : totalUsage(reports);
+  }
+  function metrics(m, partial = false) {
+    const waiting = running && !m;
+    const hasRate = reported(m?.tokensPerSecond);
+    headerRate.textContent = hasRate ? rateText(m.tokensPerSecond) + (partial ? ' · partial' : '')
+      : waiting ? 'tok/s pending' : 'tok/s unavailable';
+    headerRate.classList.toggle('measured', hasRate);
+    $('speed-metrics').hidden = false;
+    const unavailable = m ? 'Not reported' : '—';
+    const display = (value, format) => reported(value) ? format(value) : unavailable;
+    $('request-effective').textContent = display(m?.tokensPerSecond, rateText);
+    $('request-decode').textContent = display(m?.decodeTokensPerSecond, rateText);
+    $('request-tokens').textContent = display(m?.outputTokens, number);
+    $('request-provider-time').textContent = display(m?.providerMs, duration);
+    $('request-decode-time').textContent = display(m?.decodeMs, duration);
+    $('request-calls').textContent = display(m?.calls, number);
+    let status = '';
+    if (waiting) status = 'Waiting for usage';
+    else if (partial) status = 'Partial request · completed calls only';
+    else if (running) status = 'Completed calls so far';
+    else if (!hasRate) status = 'Effective speed unavailable';
+    $('request-usage-status').textContent = status;
   }
   function progress(phase, detail) {
     if (phase === 'waiting') {
@@ -159,7 +188,8 @@ export function requestActivity(throughput) {
     }
     if (phase === 'usage') {
       throughput.record(detail, modelName(detail.provider, detail.model) || label);
-      metrics(detail);
+      reports.push(detail);
+      metrics(measuredSoFar());
       line(
         (detail.model ? modelName(detail.provider, detail.model) + ' · ' : '') +
           (detail.outputTokens == null
@@ -194,15 +224,15 @@ export function requestActivity(throughput) {
     clearInterval(timer);
     tick();
     line(message);
-    metrics(m);
-    if (!answer && !m) speed.textContent = 'Output speed unavailable for this run';
+    const measured = m ?? measuredSoFar();
+    metrics(measured, !m && Boolean(measured));
     $('repeat-frame').hidden = !canRepeat;
     $('repeat-frame').textContent = answer ? 'Run same frame again' : 'Retry same frame';
     if (!canRepeat) return;
     results.push({
       label,
       time: seconds(performance.now() - start),
-      speed: answer ? speedLabel(m) : message,
+      speed: answer ? speedLabel(measured) : message,
       answer,
     });
     if (results.length > 8) results.shift();

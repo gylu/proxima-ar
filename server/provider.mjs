@@ -1,6 +1,8 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { defaultModel, gptOssModel, qwenModel, providers } from '../web/models.js';
+import { defaultModel, gptOssModel, qwenModel, providers, totalUsage } from '../web/models.js';
 import { GuideError } from './guidance.mjs';
+
+export { totalUsage };
 
 // Destinations are server-owned. A credential is valid for exactly the provider selected by the visitor.
 const endpoints = {
@@ -82,26 +84,6 @@ function embeddedError(detail, name) {
 
 const count = (n) => (Number.isSafeInteger(n) && n >= 0 ? n : null);
 const positive = (n) => (Number.isFinite(n) && n > 0 ? n : null);
-
-// Keep usage reported by the provider, including reasoning tokens when the provider counts them.
-// Effective speed uses the full successful provider call. The provider's decode clock is a separate metric.
-export function totalUsage(calls) {
-  const sum = (field) =>
-    calls.length && calls.every((r) => r[field] != null) ? calls.reduce((n, r) => n + r[field], 0) : null;
-  const outputTokens = sum('outputTokens');
-  const providerMs = sum('providerMs');
-  const decodeMs = sum('decodeMs');
-  const rate = (ms) => (outputTokens != null && ms > 0 ? (1000 * outputTokens) / ms : null);
-  return {
-    calls: calls.length,
-    inputTokens: sum('inputTokens'),
-    outputTokens,
-    providerMs,
-    decodeMs,
-    tokensPerSecond: rate(providerMs),
-    decodeTokensPerSecond: rate(decodeMs),
-  };
-}
 
 function retryDelay(response) {
   const raw = response.headers.get('retry-after');

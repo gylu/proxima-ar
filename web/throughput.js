@@ -2,7 +2,7 @@
 // boundaries only; an hour of idle video needs no additional samples.
 const fields = { effective: 'tokensPerSecond', decode: 'decodeTokensPerSecond' };
 const rateFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
-function formatRate(rate) {
+export function formatRate(rate) {
   return rate > 0 && rate < .1 ? '<0.1' : rateFormat.format(rate);
 }
 

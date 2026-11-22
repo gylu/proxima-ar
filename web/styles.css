@@ -1658,13 +1658,12 @@ details[open] > summary::after {
   margin-top: 0.25rem;
 }
 .model-settings summary span:first-child,
-.request-activity summary span:first-child {
+.request-activity summary > span:first-child {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
 }
-#model-summary,
-#activity-elapsed {
+#model-summary {
   margin-left: auto;
   font-size: 0.83rem;
   color: var(--muted);
@@ -1673,8 +1672,30 @@ details[open] > summary::after {
   overflow-wrap: anywhere;
   min-width: 0;
 }
-#activity-elapsed {
-  font-family: var(--mono);
+#request-activity {
+  container: request-activity / inline-size;
+}
+.activity-numbers {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 2px 10px;
+  margin-left: auto;
+  color: var(--muted);
+  font: 500 .875rem/1.35 var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+#activity-elapsed, .activity-rate { white-space: nowrap; }
+.activity-rate {
+  border-inline-start: 1px solid var(--line);
+  padding-inline-start: 10px;
+}
+#activity-rate.measured { color: var(--green); font-weight: 600; }
+@container request-activity (max-width: 25rem) {
+  .activity-numbers { flex-direction: column; align-items: flex-end; }
+  .activity-rate { border: 0; padding: 0; }
 }
 .settings-fields {
   display: grid;
@@ -1706,8 +1727,7 @@ details[open] > summary::after {
   border: 1px solid #c9d0c4;
   border-radius: 6px;
 }
-.settings-fields p,
-#speed-metrics {
+.settings-fields p {
   margin: 0;
   color: var(--muted);
   font-size: 0.875rem;
@@ -1755,10 +1775,6 @@ details[open] > summary::after {
   font: 0.78rem/1.6 var(--mono);
   color: var(--muted);
 }
-#speed-metrics {
-  font-weight: 580;
-  color: var(--green);
-}
 #repeat-frame {
   margin-top: 0.65rem;
 }
@@ -1786,7 +1802,7 @@ details[open] > summary::after {
   overflow-wrap: anywhere;
 }
 .request-activity .comparison-run summary,
-.request-activity .speed-help summary {
+.request-breakdown .speed-help summary {
   width: fit-content;
   padding: 0.35rem 0;
   font-size: 0.8rem;
@@ -1951,3 +1967,37 @@ details[open] > summary::after {
 }
 #throughput-reading { font-weight: 590; }
 .throughput-help { color: var(--muted); margin-top: 2px; }
+
+.request-breakdown {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.breakdown-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 3px 12px;
+}
+.breakdown-heading h3 { margin: 0; font-size: 1rem; }
+#request-usage-status, .request-measures dt {
+  color: var(--muted);
+  font-size: .875rem;
+}
+.request-measures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin: 12px 0 8px;
+}
+.request-measures dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.request-breakdown summary { cursor: pointer; }
+@media (max-width: 520px) {
+  .request-measures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

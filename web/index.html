@@ -205,13 +205,14 @@
             </details>
             <section class="request-activity" id="request-activity" aria-label="Request activity" hidden>
               <details id="activity-details" open>
-                <summary><span><i data-icon="activity"></i>Request activity</span><span id="activity-elapsed"></span></summary>
+                <summary>
+                  <span><i data-icon="activity"></i>Request activity</span>
+                  <span class="activity-numbers">
+                    <span id="activity-elapsed"></span>
+                    <span class="activity-rate" title="Effective output speed across completed provider calls"><span class="sr-only">Effective speed </span><span id="activity-rate">tok/s pending</span></span>
+                  </span>
+                </summary>
                 <ol id="activity-lines" role="log" aria-label="Request updates" aria-live="polite" tabindex="0"></ol>
-              </details>
-              <p id="speed-metrics"></p>
-              <details class="speed-help">
-                <summary>How speed is measured</summary>
-                <p>Effective speed counts output tokens per second spent on successful provider calls, including the provider’s wait. Decode speed uses generation time when the provider reports it. The activity timer covers the entire request.</p>
               </details>
               <button type="button" class="btn secondary" id="repeat-frame" hidden>Run same frame again</button>
               <div id="frame-comparison" hidden></div>
@@ -264,6 +265,24 @@
         <p id="throughput-reading" role="status">Waiting for the first measurement.</p>
         <p class="throughput-help"><span id="throughput-help">Each mark averages one completed provider call, including its wait.</span> <span id="throughput-missing"></span></p>
         <span class="sr-only" id="throughput-keys">Tap a mark or use the left and right arrow keys to inspect a call. Escape returns to the session maximum.</span>
+        <section class="request-breakdown" id="speed-metrics" aria-labelledby="request-speed-title" hidden>
+          <div class="breakdown-heading">
+            <h3 id="request-speed-title">Latest request</h3>
+            <span id="request-usage-status"></span>
+          </div>
+          <dl class="request-measures">
+            <div><dt>Effective speed</dt><dd id="request-effective">—</dd></div>
+            <div><dt>Decode speed</dt><dd id="request-decode">—</dd></div>
+            <div><dt>Output tokens</dt><dd id="request-tokens">—</dd></div>
+            <div><dt>Provider time</dt><dd id="request-provider-time">—</dd></div>
+            <div><dt>Generation time</dt><dd id="request-decode-time">—</dd></div>
+            <div><dt>Completed calls</dt><dd id="request-calls">—</dd></div>
+          </dl>
+          <details class="speed-help">
+            <summary>How speed is measured</summary>
+            <p>The rate beside the request timer uses total output tokens divided by time spent on completed provider calls, including their wait. Decode speed uses generation time reported by the provider. The request timer also includes upload, lookups and rendering.</p>
+          </details>
+        </section>
       </section>
       <footer>
         <span><i data-icon="locate-fixed"></i><span id="footer-tracking">Reference coordinates</span></span
