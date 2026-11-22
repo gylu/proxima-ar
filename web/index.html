@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f7f8f5" />
     <meta
       name="description"
-      content="Explore hardware with camera-anchored visual guidance from Kimi on Cerebras."
+      content="Ask a question about a photo or camera frame and compare visual answers from different models."
     />
     <title>Visual guide · Proxima AR</title>
     <link rel="icon" href="./assets/proxima.svg" type="image/svg+xml" />
@@ -128,7 +128,7 @@
             <h2 id="guide-title">
               <span class="guide-glyph"><i data-icon="scan-eye"></i></span>Spatial guide
             </h2>
-            <span class="model-pill">KIMI K3.1 PRO</span>
+            <span class="model-pill" id="active-model-pill">Kimi K3.1 Pro</span>
           </div>
           <div class="guide-content">
             <div class="guide-reading" id="reading" hidden aria-live="polite" aria-atomic="true">
@@ -162,8 +162,8 @@
                 <div class="ask-actions">
                   <select
                     id="input-mode"
-                    aria-label="Input to Kimi"
-                    title="Choose which scene data to send to Kimi"
+                    aria-label="Model input"
+                    title="Choose which scene data to send to the model"
                   >
                     <option value="image">Frame + anchors</option>
                     <option value="anchors" id="map-option">Anchor map only</option>
@@ -175,9 +175,32 @@
                 </div>
               </div>
             </form>
+            <details id="model-settings" class="model-settings">
+              <summary><span><i data-icon="sliders-horizontal"></i>Model settings</span><span id="model-summary">Kimi K3.1 Pro · Cerebras</span></summary>
+              <div class="settings-fields">
+                <label>Provider<select id="provider-choice"></select></label>
+                <label>Model<select id="model-choice"></select></label>
+                <label id="custom-model-field" class="wide" hidden>Model ID<input id="custom-model" type="text" maxlength="160" autocomplete="off" autocapitalize="none" spellcheck="false" /></label>
+                <label class="wide"><span id="provider-key-label">Cerebras API key (optional)</span><input id="provider-key" type="password" aria-describedby="key-hint" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="1024" /></label>
+                <p id="key-hint" class="wide">The project key is available for Cerebras.</p>
+              </div>
+            </details>
+            <section class="request-activity" id="request-activity" aria-label="Request activity" hidden>
+              <details id="activity-details" open>
+                <summary><span><i data-icon="activity"></i>Request activity</span><span id="activity-elapsed"></span></summary>
+                <ol id="activity-lines" role="log" aria-label="Request updates" aria-live="polite" tabindex="0"></ol>
+              </details>
+              <p id="speed-metrics"></p>
+              <details class="speed-help">
+                <summary>How speed is measured</summary>
+                <p>Effective speed counts output tokens per second spent on successful provider calls, including the provider’s wait. Decode speed uses generation time when the provider reports it. The activity timer covers the entire request.</p>
+              </details>
+              <button type="button" class="btn secondary" id="repeat-frame" hidden>Run same frame again</button>
+              <div id="frame-comparison" hidden></div>
+            </section>
           </div>
           <div class="guide-foot">
-            <span class="inference-mark" aria-hidden="true">≋</span>Inference by Cerebras<span
+            <span class="inference-mark" aria-hidden="true">≋</span><span id="inference-provider">Inference by Cerebras</span><span
               class="foot-divider"
             ></span
             >OpenClaw
@@ -191,7 +214,7 @@
         </div>
         <div id="anchor-list" class="anchor-list"></div>
         <div id="empty-anchors" hidden>
-          Tap a component in the frame to pin it, or ask Kimi to locate one.
+          Tap a component in the frame to pin it, or ask the model to locate one.
         </div>
       </section>
       <footer>

@@ -12,6 +12,8 @@ function canvasOf(source, width, height, maxSize = 960) {
   return canvas;
 }
 
+export const isModelAnchor = (anchor) => anchor.group === 'Model target' || anchor.group === 'Kimi target';
+
 export class Scene {
   constructor({ onChange, onMotion, onNotice }) {
     Object.assign(this, { onChange, onMotion, onNotice });
@@ -20,6 +22,7 @@ export class Scene {
     this.screen = byId('screen');
     this.plane = byId('plane');
     this.epoch = 0;
+    this.baseline = 0;
     this.loadId = 0;
     this.frameLoop = 0;
     this.positions = new Map();
@@ -239,6 +242,7 @@ export class Scene {
 
   rebase(frame) {
     if (!this.tracker) return;
+    this.baseline++;
     this.tracker.update(frame);
     this.updatePositions();
     for (const a of this.anchors) {
@@ -279,11 +283,11 @@ export class Scene {
   addAnchor(point, label, source) {
     if (this.anchors.length >= 24) {
       const removable =
-        source === 'kimi'
-          ? (this.anchors.find((a) => a.group === 'Kimi target' && a.lost) ??
-            this.anchors.find((a) => a.group === 'Kimi target'))
+        source !== 'pin'
+          ? (this.anchors.find((a) => isModelAnchor(a) && a.lost) ??
+            this.anchors.find(isModelAnchor))
           : this.anchors.find((a) => a.lost);
-      if (!removable && source === 'kimi') return null;
+      if (!removable && source !== 'pin') return null;
       if (!removable) throw new Error('This scene already has 24 anchors. Start a new scene to add more.');
       this.anchors.splice(this.anchors.indexOf(removable), 1);
       this.positions.delete(removable.id);
@@ -291,14 +295,14 @@ export class Scene {
     const a = {
       id: crypto.randomUUID(),
       label,
-      group: source === 'pin' ? 'Manual pin' : 'Kimi target',
+      group: source === 'pin' ? 'Manual pin' : 'Model target',
       icon: 'locate-fixed',
       x: point.x,
       y: point.y,
       note:
         source === 'pin'
-          ? 'This location was pinned in the current scene. Ask Kimi about the part under the marker.'
-          : 'Kimi identified this location in the captured frame.',
+          ? 'This location was pinned in the current scene. Ask about the part under the marker.'
+          : 'The model identified this location in the captured frame.',
     };
     this.anchors.push(a);
     this.selected = a.id;

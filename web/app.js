@@ -1,5 +1,8 @@
-import { Scene } from './scene.js';
+import { Scene, isModelAnchor } from './scene.js';
 import { boardManual, readManual, selectExcerpts } from './manual.js';
+import { modelName, providers, defaultModel } from './models.js';
+import { setupModels } from './model-controls.js';
+import { requestActivity, speedLabel } from './request-activity.js';
 
 const $ = (id) => document.getElementById(id);
 const logs = [];
@@ -23,6 +26,14 @@ let dialogKind = '',
   lastExcerpts = [],
   manualTicket = 0;
 const scene = new Scene({ onChange: sceneChanged, onMotion: renderMotion, onNotice: notice });
+let savedFrame = null;
+const activity = requestActivity();
+const models = setupModels((provider, model) => setAskLabel(provider, model, Boolean(activeRequest)));
+
+function setAskLabel(provider, model, waiting) {
+  const label = provider === 'cerebras' && model === defaultModel ? 'Ask Kimi' : 'Ask model';
+  $('ask-btn').replaceChildren(icon(waiting ? 'loader-circle' : 'send'), node('span', waiting ? 'Asking…' : label));
+}
 
 function node(tag, text, cls) {
   const result = document.createElement(tag);
@@ -67,6 +78,7 @@ function cancelTurn() {
   if (activeRequest) {
     activeRequest.controller.abort();
     activeRequest = null;
+    activity.finish('Request cancelled.', null, Boolean(savedFrame));
   }
   setWaiting(false);
 }
@@ -76,10 +88,9 @@ function setWaiting(waiting) {
   $('adjust-btn').disabled = waiting;
   $('input-mode').disabled = waiting;
   $('ask-btn').classList.toggle('waiting', waiting);
-  $('ask-btn').replaceChildren(
-    icon(waiting ? 'loader-circle' : 'send'),
-    node('span', waiting ? 'Asking…' : 'Ask Kimi'),
-  );
+  models.lock(waiting);
+  const { provider, model } = models.selection();
+  setAskLabel(provider, model, waiting);
   $('ask-form').setAttribute('aria-busy', String(waiting));
   for (const el of $('suggestions').children) el.disabled = waiting;
 }
@@ -90,7 +101,8 @@ function selectedAnchor() {
   return scene.anchors.find((a) => a.id === scene.selected);
 }
 function showAnswer(result) {
-  setReading('KIMI · LIVE ANSWER', result.target?.label || 'Answer', result.answer, false, 'scan-eye');
+  const name = modelName(result.provider, result.model) || 'Kimi';
+  setReading(name + ' · live answer', result.target?.label || 'Answer', result.answer, false, 'scan-eye');
   const sources = result.sources || [];
   if (sources.length) {
     const box = $('answer-sources');
@@ -125,7 +137,7 @@ function referenceReading() {
     );
   } else {
     const label =
-      a.group === 'Manual pin' ? 'MANUAL PIN' : a.group === 'Kimi target' ? 'KIMI TARGET' : 'REFERENCE NOTE';
+      a.group === 'Manual pin' ? 'MANUAL PIN' : isModelAnchor(a) ? 'MODEL TARGET' : 'REFERENCE NOTE';
     setReading(label, a.label, a.note);
   }
 }
@@ -288,6 +300,8 @@ function sceneChanged() {
     lastExcerpts = [];
     $('manual-name').textContent = manual?.name || 'Attach instructions';
     cancelTurn();
+    savedFrame = null;
+    activity.reset();
     sceneHistory = [];
     if (hadScene) $('question').value = '';
     notice();
@@ -345,53 +359,85 @@ async function checkRuntime() {
 function elapsedText(ms) {
   return ms < 1000 ? Math.round(ms) + ' ms' : (ms / 1000).toFixed(2) + ' s';
 }
-async function ask(event) {
+function captureQuestion(question) {
+  const mode = advanced && $('input-mode').value === 'anchors' ? 'anchors' : 'image';
+  const frame = scene.capture(mode);
+  if (!advanced) {
+    const generated = new Set(scene.anchors.filter(isModelAnchor).map((a) => a.id));
+    frame.anchors = frame.anchors.filter((a) => generated.has(a.id));
+    frame.selected = generated.has(frame.selected) ? frame.selected : null;
+  }
+  lastExcerpts = selectExcerpts(
+    !advanced && manual === boardManual ? null : manual,
+    question,
+    [selectedAnchor()?.label, sceneHistory.at(-1)?.question].filter(Boolean).join(' '),
+  );
+  return {
+    epoch: scene.epoch,
+    baseline: scene.baseline,
+    payload: { ...frame, contextId, question, excerpts: lastExcerpts, history: sceneHistory.slice(-3) },
+  };
+}
+
+async function ask(event, repeat = false) {
   event.preventDefault();
-  const question = $('question').value.trim();
+  if (activeRequest || scene.source === 'empty') return;
+  if (repeat && (!savedFrame || savedFrame.epoch !== scene.epoch)) return;
+  const question = repeat ? savedFrame.payload.question : $('question').value.trim();
   if (!question) {
     $('question').focus();
     return;
   }
-  if (activeRequest || scene.source === 'empty') return;
   setMoveMode();
+  const route = models.selection();
+  const name = route.name,
+    providerName = providers[route.provider].name;
   const controller = new AbortController();
   const ticket = { controller, epoch: scene.epoch };
+  const start = performance.now();
   activeRequest = ticket;
   const current = () => activeRequest === ticket && scene.epoch === ticket.epoch;
   setWaiting(true);
   notice();
-  const mapOnly = advanced && $('input-mode').value === 'anchors';
-  setReading(
-    'OPENCLAW · CEREBRAS',
-    mapOnly ? 'Reading the anchor map…' : 'Reading the frame…',
-    mapOnly
-      ? 'Kimi is selecting from the named parts in view.'
-      : 'Kimi is checking your question against this scene.',
-    false,
-    'scan-eye',
-  );
+  let capture, editSetting;
   try {
+    if (!repeat) savedFrame = null;
+    capture = repeat ? savedFrame : captureQuestion(question);
+    savedFrame = capture;
+    const frame = capture.payload;
+    const mapOnly = frame.inputMode === 'anchors';
+    activity.begin(route.provider, route.model, frame.frameId);
+    activity.line('Question · ' + question);
+    activity.line(
+      repeat
+        ? 'Reusing the same frame, question and original conversation context.'
+        : mapOnly
+          ? 'Anchor map captured on this device.'
+          : 'One image frame captured on this device.',
+    );
+    if (!route.model || (route.provider !== 'cerebras' && !route.apiKey)) {
+      editSetting = route.model ? 'key' : 'model';
+      throw new Error(
+        route.model
+          ? 'Enter your ' + providerName + ' API key in Model settings.'
+          : 'Enter a model ID in Model settings.',
+      );
+    }
+    setReading(
+      'OpenClaw · ' + providerName,
+      'Preparing your question…',
+      'Sending this ' + (mapOnly ? 'anchor map' : 'frame') + ' to ' + name + '.',
+      false,
+      'scan-eye',
+    );
     if (runtime !== 'ready') {
+      activity.line('Checking the private cloud connection.');
       await checkRuntime();
       if (!current()) return;
       if (runtime !== 'ready')
-        throw new Error(
-          'The private cloud guide is unavailable. You can keep working with your photo and retry later.',
-        );
+        throw new Error('The cloud service could not connect. Your captured frame is available to retry.');
     }
-    const start = performance.now();
-    const frame = scene.capture(mapOnly ? 'anchors' : 'image');
-    if (!advanced) {
-      // Allow unlabelled images in every client. Suggestions from earlier turns can be reused.
-      const generated = new Set(scene.anchors.filter((a) => a.group === 'Kimi target').map((a) => a.id));
-      frame.anchors = frame.anchors.filter((a) => generated.has(a.id));
-      frame.selected = generated.has(frame.selected) ? frame.selected : null;
-    }
-    lastExcerpts = selectExcerpts(
-      !advanced && manual === boardManual ? null : manual,
-      question,
-      [selectedAnchor()?.label, sceneHistory.at(-1)?.question].filter(Boolean).join(' '),
-    );
+    activity.line('Sending your question to the private cloud service.');
     const r = await fetch('/api/guide', {
       method: 'POST',
       headers: {
@@ -401,41 +447,57 @@ async function ask(event) {
       },
       body: JSON.stringify({
         ...frame,
-        contextId,
-        question,
-        excerpts: lastExcerpts,
-        history: sceneHistory.slice(-3),
+        inference: { provider: route.provider, model: route.model, apiKey: route.apiKey },
       }),
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(130000)]),
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(135000)]),
     });
     if (!current()) return;
     const result = await readAnswer(r, (phase, detail) => {
       if (!current()) return;
+      activity.progress(phase, detail);
       if (phase === 'searching')
         setReading(
-          'PROXIMA',
+          'Proxima',
           'Looking up the manual…',
           'Checking manufacturer documentation for ' + detail + '.',
           false,
           'book-open',
         );
+      if (phase === 'retry')
+        setReading(
+          providerName,
+          'Retrying the provider…',
+          'Your frame is saved. The next attempt will use the same image and question.',
+          false,
+          'activity',
+        );
+      if (phase === 'provider')
+        setReading(
+          'OpenClaw · ' + providerName,
+          'Waiting for ' + name + '…',
+          'Proxima is waiting for the provider’s response.',
+          false,
+          'scan-eye',
+        );
       if (phase === 'answering')
         setReading(
-          'OPENCLAW · CEREBRAS',
+          'OpenClaw · ' + providerName,
           'Preparing your answer…',
           detail === 'found'
-            ? 'Kimi is reading the relevant passages.'
-            : 'Kimi is checking what it can answer from the available evidence.',
+            ? 'Reading the relevant manual passages.'
+            : 'Using the available scene evidence.',
           false,
           'scan-eye',
         );
     });
-    if (result.frameId !== frame.frameId || !current()) return;
+    if (!current()) return;
+    if (result.frameId !== frame.frameId)
+      throw new Error('The response did not match this frame. Try again.');
     let target = null;
-    if (result.target) {
+    if (result.target && capture.baseline === scene.baseline) {
       target = result.target.id
         ? scene.anchors.find((a) => a.id === result.target.id)
-        : scene.addAnchor(result.target, result.target.label, 'kimi');
+        : scene.addAnchor(result.target, result.target.label, 'model');
     }
     scene.selected = target?.id ?? null;
     if (target) showOverlays = true;
@@ -445,55 +507,70 @@ async function ask(event) {
     $('anchor-hint').hidden = scene.source === 'reference' || scene.anchors.length > 0;
     showAnswer(lastAnswer);
     const locked = target && scene.position(target);
-    if (target && !locked)
-      notice(
-        'Kimi identified the target in the captured frame. Tracking lost it as the camera moved. Reframe and ask again.',
-      );
+    if (result.target && !locked)
+      notice('The model identified a part in the saved frame. Reframe and ask again to position its marker.');
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     if (!current()) return;
     const ms = performance.now() - start;
-    $('latency').textContent =
-      elapsedText(ms) + ' · ' + (mapOnly ? 'map' : 'frame') + (locked ? ' to overlay' : ' to answer');
+    lastAnswer.timing = elapsedText(ms) + (locked ? ' to overlay' : ' to answer');
+    $('latency').textContent = lastAnswer.timing;
     $('latency').hidden = false;
-    lastAnswer.timing = $('latency').textContent;
-    sceneHistory.push({ question, answer: result.answer });
+    activity.finish('Answer received.', result.metrics, true, result.answer);
+    if (repeat && sceneHistory.at(-1)?.frameId === frame.frameId) sceneHistory.pop();
+    sceneHistory.push({ frameId: frame.frameId, question, answer: result.answer });
     if (sceneHistory.length > 3) sceneHistory.shift();
-    log('Kimi · live', question, result.answer, ms, result.sources || []);
+    log(
+      name + ' · ' + providerName,
+      question,
+      result.answer + ' · ' + speedLabel(result.metrics),
+      ms,
+      result.sources || [],
+    );
     if ($('question').value.trim() === question) $('question').value = '';
-  } catch (e) {
+  } catch (error) {
     if (!current() || controller.signal.aborted) return;
-    if (e.contextId) contextId = e.contextId;
-    let description = e.message;
-    if (e instanceof TypeError) {
-      description = 'The browser could not reach the private cloud guide. Check the connection and retry.';
-      void checkRuntime();
-    } else if (e.name === 'TimeoutError')
-      description = 'The request timed out. Capture a fresh frame and try again.';
+    if (error.contextId) contextId = error.contextId;
+    let description = error.message;
+    if (error instanceof TypeError) description = 'The connection was interrupted. Retry the saved frame.';
+    if (error.name === 'TimeoutError')
+      description = 'The request timed out. Retry the saved frame or choose another model.';
     setReading(
-      'REQUEST STATUS',
-      e.code === 'busy' ? 'Cerebras is busy' : 'Guidance unavailable',
+      'Request status',
+      error.code === 'busy' ? providerName + ' is busy' : 'Guidance unavailable',
       description,
       true,
       'activity',
     );
-    log('Request status', question, description);
+    activity.finish(
+      (error.providerStatus ? 'HTTP ' + error.providerStatus + ' · ' : '') + description,
+      null,
+      Boolean(capture),
+    );
+    log(name + ' · request status', question, description, performance.now() - start);
   } finally {
     if (current()) {
       activeRequest = null;
       setWaiting(false);
+      if (editSetting) models.edit(editSetting === 'key');
     }
   }
 }
 
 async function readAnswer(response, onProgress) {
-  if (!response.ok || !response.headers.get('content-type')?.includes('application/x-ndjson')) {
-    const data = await response.json();
-    if (!response.ok)
+  const type = response.headers.get('content-type') || '';
+  if (!response.ok || !type.includes('application/x-ndjson')) {
+    if (type.includes('application/json')) {
+      const data = await response.json();
+      if (response.ok) return data;
       throw Object.assign(new Error(data.error || 'The question could not be completed.'), {
         code: data.code,
         contextId: data.contextId,
+        providerStatus: data.providerStatus,
       });
-    return data;
+    }
+    if (response.status === 401 || response.status === 403 || response.redirected)
+      throw new Error('Sign in to the private site and try again.');
+    throw new Error('The cloud connection ended before the answer arrived. Retry the saved frame.');
   }
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let pending = '';
@@ -509,7 +586,11 @@ async function readAnswer(response, onProgress) {
         if (event.type === 'progress') onProgress(event.phase, event.detail);
         if (event.type === 'answer') return event.reply;
         if (event.type === 'error')
-          throw Object.assign(new Error(event.error), { code: event.code, contextId: event.contextId });
+          throw Object.assign(new Error(event.error), {
+            code: event.code,
+            contextId: event.contextId,
+            providerStatus: event.providerStatus,
+          });
       }
       if (done) throw new Error('The connection ended before the answer arrived. Please retry.');
     }
@@ -530,7 +611,7 @@ function renderConnection() {
     ready:
       'OpenClaw ' +
       harnessVersion +
-      ' runs in the private cloud service. It sends the frame and question to Kimi on Cerebras. The service can look up manufacturer documentation when Kimi needs it.',
+      ' runs in the private cloud service. Each question goes to the provider selected in Model settings. The service can look up manufacturer documentation when the model requests it.',
     starting: 'The private cloud service is starting OpenClaw. This panel updates when it is ready.',
     key_missing: 'The cloud service needs its Cerebras credential.',
     offline: 'Live answers are unavailable until the private cloud service is connected.',
@@ -657,7 +738,7 @@ function about() {
     body.append(
       node(
         'p',
-        'The four reference anchors are hand-mapped to the photograph. Select an anchor for its field note, or ask Kimi to inspect the frame.',
+        'The four reference anchors are hand-mapped to the photograph. Select an anchor for its field note, or ask the model to inspect the frame.',
       ),
     );
     const links = node('div', null, 'modal-links');
@@ -745,6 +826,7 @@ async function expand() {
 }
 document.querySelectorAll('i[data-icon]').forEach((i) => i.replaceWith(icon(i.dataset.icon)));
 $('ask-form').addEventListener('submit', ask);
+$('repeat-frame').onclick = (event) => ask(event, true);
 $('question').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
     e.preventDefault();

@@ -6,7 +6,7 @@ A visual guide to the hardware in front of you. Upload a photo or point your cam
 
 The [private website](https://proxima.example.invalid) serves the camera UI and its API on one HTTPS origin. Sites handles sign-in and the owner-only access list. The Worker also checks the signed-in visitor against `PROXIMA_OWNER_EMAIL` on every route. A holder of a Site service token still needs a signed-in owner identity to open Proxima or ask a question.
 
-The live-guidance backend is designed for a private Google Cloud Run container. Its application accepts `/api/status` and `/api/guide` from the authenticated Site. OpenClaw listens on loopback inside the container. The gateway has a fresh private workspace under the container’s temporary directory, a read-only configuration, a single Cerebras model, and disabled agent tools, browser control, chat commands, and scheduled tasks. The Node process runs as the container’s unprivileged `node` user. A camera stream stays in the browser between questions.
+The live-guidance backend is designed for a private Google Cloud Run container. Its application accepts `/api/status` and `/api/guide` from the authenticated Site. OpenClaw listens on loopback inside the container. The gateway has a fresh private workspace under the container’s temporary directory, a read-only configuration, a loopback model relay, and disabled agent tools, browser control, chat commands, and scheduled tasks. The Node process runs as the container’s unprivileged `node` user. A camera stream stays in the browser between questions.
 
 The Worker needs the service’s HTTPS URL, an invocation-only Google service account credential and a separate service token. The container reads `CEREBRAS_API_KEY` and the matching `PROXIMA_SERVICE_TOKEN` from its cloud secret bindings. When the backend is unconfigured, the UI still opens and live answers show as offline. The application has no laptop fallback.
 
@@ -16,7 +16,13 @@ Use `npm test` for the access, model contract and geometry checks and `npm run b
 
 In the chosen Google Cloud project, use dedicated `proxima-runtime`, `proxima-build`, and `proxima-invoker` service accounts. Give the runtime account Secret Manager accessor permission on `proxima-cerebras` and `proxima-service-token` only. The build account needs Cloud Run Builder permissions. Run `sh scripts/deploy-cloud.sh PROJECT_ID REGION` from the checkout. It enables Cloud Run’s invoker check, disables anonymous access and scales between zero and one instance. Grant the invoker account `roles/run.invoker` on `proxima-guide` only.
 
-Set `PROXIMA_SERVICE_URL` to the canonical `run.app` service origin in Sites. Store the invoker’s JSON credential under `PROXIMA_CLOUD_INVOKER` and the shared random service token under `PROXIMA_SERVICE_TOKEN` as Site secrets. The edge service exchanges a signed assertion for a short-lived Google ID token. Publish the Site with the new variables and check the signed-in **Runtime connection** panel. The Cerebras key belongs exclusively in the backend secret. [Cloud Run service authentication](https://docs.cloud.google.com/run/docs/authenticating/service-to-service)
+Set `PROXIMA_SERVICE_URL` to the canonical `run.app` service origin in Sites. Store the invoker’s JSON credential under `PROXIMA_CLOUD_INVOKER` and the shared random service token under `PROXIMA_SERVICE_TOKEN` as Site secrets. The edge service exchanges a signed assertion for a short-lived Google ID token. Publish the Site with the new variables and check the signed-in **Runtime connection** panel. The default Cerebras project key belongs in the backend secret. [Cloud Run service authentication](https://docs.cloud.google.com/run/docs/authenticating/service-to-service)
+
+## Model comparison
+
+**Model settings** offers Cerebras, OpenAI, OpenRouter and Google Gemini. Choose a listed vision model or enter a model ID. Cerebras can use the project key. Personal provider keys are held in tab memory and sent to the private backend over HTTPS with the request. The relay sends the selected key only to its fixed provider endpoint. Keys are excluded from OpenClaw inputs, activity logs and browser storage.
+
+**Request activity** follows the frame through OpenClaw, any manufacturer lookup, provider attempts and completion. Capacity refusals receive at most one automatic retry for each model call when the provider’s retry delay is at most ten seconds. **Run same frame again** reuses the captured pixels, question and original context with the newly selected model. A response includes the actual provider, model and token metrics. Effective output tok/s divides reported output tokens by the combined elapsed time of successful provider calls. Decode tok/s uses provider-reported generation time when available. Time to answer also includes upload, OpenClaw, lookup, retries and rendering. Missing usage is displayed as unavailable.
 
 ## Ask about a device
 
@@ -33,15 +39,15 @@ Browser camera or image
    ├─ Local JSFeat corner detection and pyramidal optical flow → overlay
    └─ On Ask: JPEG + frame ID + question + optional scene context
           → owner-authenticated Sites Worker → private cloud service → OpenClaw /v1/responses
-          → Cerebras /v1/chat/completions (moonshotai-kimi-k3.1-pro-trial)
+          → private model relay → selected provider (default: Kimi K3.1 Pro on Cerebras)
           ├─ Answer and optional target → browser
           └─ Documentation request → manufacturer search and text extraction
-                → OpenClaw → Kimi on Cerebras → answer with sources → browser
+                → OpenClaw → selected model → answer with sources → browser
 ```
 
 The snapshot and tracking baseline use the same pixels. Forward–backward optical flow checks reject inconsistent tracks. A local similarity transform maps the original point to the current frame, and a changed scene invalidates outstanding replies. Tracking is two-dimensional and targets up to 30 updates per second. Out-of-view targets require reacquisition. Camera input runs locally between questions.
 
-The same `/api/guide` contract accepts an unlabeled image from web or future native clients. Clients can pass back a `contextId` with a follow-up. The companion uses Parallel’s Search MCP to search and read manufacturer pages or PDFs using product and procedure terms. Camera frames go through OpenClaw to Cerebras. Poll `/api/status` for the installed OpenClaw version and gateway readiness.
+The same `/api/guide` contract accepts an unlabeled image from web or future native clients. Clients can pass back a `contextId` with a follow-up. The companion uses Parallel’s Search MCP to search and read manufacturer pages or PDFs using product and procedure terms. Camera frames go through OpenClaw to the selected provider. Poll `/api/status` for the installed OpenClaw version and gateway readiness.
 
 Documentation lookups are limited to a maintained manufacturer list, bounded product-model terms and predefined procedure topics. The backend supplies all lookup destinations. Text found inside a photo or manual can still mislead the model’s answer.
 

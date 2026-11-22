@@ -1,8 +1,8 @@
-import { MODEL, BASE_URL } from './guidance.mjs';
-
-export function gatewayConfig(workspace, gatewayPort) {
-  const activeModel = 'cerebras/' + MODEL;
+export function gatewayConfig(workspace, gatewayPort, relayUrl) {
+  const activeModel = 'proxima/visual-guide';
   return {
+    logging: { level: 'silent', consoleLevel: 'silent' },
+    diagnostics: { enabled: false },
     gateway: {
       port: gatewayPort,
       bind: 'loopback',
@@ -33,14 +33,14 @@ export function gatewayConfig(workspace, gatewayPort) {
       mode: 'replace',
       catalogRefresh: { enabled: false },
       providers: {
-        cerebras: {
+        proxima: {
           api: 'openai-completions',
-          baseUrl: BASE_URL,
-          apiKey: '${CEREBRAS_API_KEY}',
+          baseUrl: relayUrl,
+          apiKey: '${PROXIMA_RELAY_TOKEN}',
           models: [
             {
-              id: MODEL,
-              name: 'Kimi K3.1 Pro',
+              id: 'visual-guide',
+              name: 'Proxima visual guide',
               input: ['text', 'image'],
               reasoning: true,
               contextWindow: 65536,

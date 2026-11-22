@@ -8,3 +8,4 @@
 !server/*.mjs
 !web/
 !web/manual.js
+!web/models.js

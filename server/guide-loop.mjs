@@ -25,7 +25,7 @@ export function createGuide({ runGateway, search = findManual }) {
     contexts.set(id, { documents, expires: Date.now() + 60 * 60 * 1000 });
     return id;
   }
-  return async function guide(frame, signal, progress = () => {}) {
+  return async function guide(frame, signal, progress = () => {}, inference) {
     let contextId = frame.contextId;
     const previous = contexts.get(contextId);
     let documents = previous && previous.expires > Date.now() ? previous.documents : [];
@@ -33,7 +33,7 @@ export function createGuide({ runGateway, search = findManual }) {
     let refs = passages(documents, frame.question, frame.history.at(-1)?.question || '');
     const turn = async (status) =>
       parseTurn(
-        await runGateway(buildTurn(frame, { references: refs, lookupStatus: status }), signal),
+        await runGateway(buildTurn(frame, { references: refs, lookupStatus: status }), signal, inference),
         frame,
       );
     let result = await turn('allowed');
@@ -73,7 +73,7 @@ export function createGuide({ runGateway, search = findManual }) {
         throw new GuideError(
           502,
           'invalid_reply',
-          'Kimi could not finish the answer. Try a more specific question.',
+          'The model could not finish the answer. Try a more specific question.',
         );
     }
     const { sourceIds, ...reply } = result;

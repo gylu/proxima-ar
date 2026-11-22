@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { readFile, writeFile, mkdir, mkdtemp, stat, open } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, mkdtemp, stat } from 'node:fs/promises';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -10,6 +10,8 @@ import { MODEL, GuideError, readFrame, serviceError } from './guidance.mjs';
 
 import { createGuide } from './guide-loop.mjs';
 import { gatewayConfig } from './openclaw-config.mjs';
+import { selectProvider, totalUsage } from './provider.mjs';
+import { startRelay } from './model-relay.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const port = Number(process.env.PORT || 8080);
@@ -26,7 +28,8 @@ const runtime = await mkdtemp(path.join(tmpdir(), 'proxima-openclaw-'));
 const token = randomBytes(32).toString('hex');
 await mkdir(path.join(runtime, 'workspace'), { recursive: true, mode: 0o700 });
 const configPath = path.join(runtime, 'openclaw.json');
-const config = gatewayConfig(path.join(runtime, 'workspace'), gatewayPort);
+const relay = await startRelay();
+const config = gatewayConfig(path.join(runtime, 'workspace'), gatewayPort, relay.url);
 await writeFile(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
 const agentDir = path.join(runtime, 'agents/main/agent');
 await mkdir(agentDir, { recursive: true, mode: 0o700 });
@@ -45,10 +48,9 @@ const recentQuestions = [];
 async function startHarness() {
   const entry = path.join(root, 'node_modules/openclaw/openclaw.mjs');
   await stat(entry);
-  const log = await open(path.join(runtime, 'gateway.log'), 'a', 0o600);
   harness = spawn(process.execPath, [entry, 'gateway', 'run'], {
     cwd: runtime,
-    stdio: ['ignore', log.fd, log.fd],
+    stdio: 'ignore',
     env: {
       PATH: process.env.PATH,
       HOME: runtime,
@@ -57,14 +59,13 @@ async function startHarness() {
       OPENCLAW_STATE_DIR: runtime,
       OPENCLAW_CONFIG_PATH: configPath,
       OPENCLAW_GATEWAY_TOKEN: token,
-      CEREBRAS_API_KEY: key,
+      PROXIMA_RELAY_TOKEN: relay.token,
       OPENCLAW_NO_RESPAWN: '1',
       OPENCLAW_CONFIG_READONLY: '1',
       OPENCLAW_DISABLE_BONJOUR: '1',
       NODE_ENV: 'production',
     },
   });
-  await log.close();
   harness.once('exit', () => {
     gatewayState = 'offline';
   });
@@ -110,18 +111,30 @@ async function parseBody(req) {
   }
 }
 
-async function runGateway(body, signal) {
+async function runGateway(body, signal, inference) {
   if (gatewayState !== 'ready' && (await getState()) !== 'ready') {
     throw new GuideError(503, 'offline', 'The private cloud guide is starting or unavailable. Please retry.');
   }
-  const res = await fetch(gateway + '/v1/responses', {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal,
-  });
-  if (!res.ok) throw serviceError(res.status, (await res.text()).slice(0, 8000));
-  return res.json();
+  const slot = relay.register(inference, signal);
+  try {
+    inference.progress('harness', {});
+    const res = await fetch(gateway + '/v1/responses', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, instructions: body.instructions + slot.instruction }),
+      signal,
+    });
+    if (slot.turn.error) {
+      await res.body?.cancel();
+      throw slot.turn.error;
+    }
+    if (!res.ok) throw serviceError(res.status, (await res.text()).slice(0, 8000));
+    const result = await res.json();
+    if (!slot.turn.claimed) throw new GuideError(502, 'gateway', 'OpenClaw could not reach the selected model. Retry this frame.');
+    return result;
+  } finally {
+    slot.release();
+  }
 }
 
 const ask = createGuide({ runGateway });
@@ -155,7 +168,9 @@ const server = http.createServer(async (req, res) => {
         return send(res, 415, { error: 'JSON required' });
       if (inFlight)
         throw new GuideError(429, 'in_flight', 'Another frame is processing. Try again in a moment.');
-      const frame = readFrame(await parseBody(req));
+      const input = await parseBody(req);
+      const route = selectProvider(input?.inference, key);
+      const frame = readFrame(input);
       if (inFlight)
         throw new GuideError(429, 'in_flight', 'Another frame is processing. Try again in a moment.');
       const now = Date.now();
@@ -170,34 +185,49 @@ const server = http.createServer(async (req, res) => {
       });
       try {
         const signal = AbortSignal.any([aborted.signal, AbortSignal.timeout(125000)]);
-        if (!req.headers.accept?.includes('application/x-ndjson')) {
-          send(res, 200, await ask(frame, signal));
-        } else {
-          res.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store' });
-          const write = (event) => {
-            if (!res.destroyed) res.write(JSON.stringify(event) + '\n');
+        const streaming = req.headers.accept?.includes('application/x-ndjson');
+        if (streaming) {
+          res.writeHead(200, {
+            'Content-Type': 'application/x-ndjson',
+            'Cache-Control': 'no-store, no-transform',
+            'X-Accel-Buffering': 'no',
+          });
+          res.flushHeaders();
+        }
+        const write = (event) => {
+          if (streaming && !res.destroyed) res.write(JSON.stringify(event) + '\n');
+        };
+        const progress = (phase, detail) => write({ type: 'progress', phase, detail });
+        const calls = [];
+        progress('accepted', {});
+        const pulse = streaming && setInterval(() => progress('waiting', {}), 8000);
+        try {
+          const answer = await ask(frame, signal, progress, { route, progress, calls });
+          const reply = {
+            ...answer,
+            provider: route.provider,
+            model: route.model,
+            metrics: totalUsage(calls),
           };
-          try {
-            write({ type: 'progress', phase: 'reading' });
-            const reply = await ask(frame, signal, (phase, detail) =>
-              write({ type: 'progress', phase, detail }),
-            );
-            write({ type: 'answer', reply });
-          } catch (error) {
-            write({
-              type: 'error',
-              code: error.code || 'unavailable',
-              contextId: error.contextId,
-              error:
-                error instanceof GuideError
-                  ? error.message
-                  : signal.aborted
-                    ? 'The request timed out. Try again.'
-                    : 'The cloud service could not finish this question.',
-            });
-          } finally {
-            res.end();
-          }
+          if (streaming) write({ type: 'answer', reply });
+          else send(res, 200, reply);
+        } catch (error) {
+          if (!streaming) throw error;
+          write({
+            type: 'error',
+            code: error.code || 'unavailable',
+            contextId: error.contextId,
+            providerStatus: error.providerStatus,
+            error:
+              error instanceof GuideError
+                ? error.message
+                : signal.aborted
+                  ? 'The request timed out. Retry this frame.'
+                  : 'The cloud service could not finish this question.',
+          });
+        } finally {
+          if (pulse) clearInterval(pulse);
+          if (streaming) res.end();
         }
       } finally {
         inFlight = false;
@@ -237,10 +267,12 @@ async function startService() {
 startService().catch(() => {
   console.error('The private OpenClaw gateway failed to start.');
   harness?.kill('SIGTERM');
+  relay.close();
   process.exitCode = 1;
 });
 function close() {
   harness?.kill('SIGTERM');
+  relay.close();
   server.close();
 }
 process.once('SIGTERM', close);

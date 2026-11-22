@@ -1,5 +1,4 @@
-export const MODEL = 'moonshotai-kimi-k3.1-pro-trial';
-export const BASE_URL = 'https://api.cerebras.ai/v1';
+export { defaultModel as MODEL } from '../web/models.js';
 
 export class GuideError extends Error {
   constructor(status, code, message) {
@@ -96,13 +95,13 @@ export function serviceError(status, details) {
     status === 429 ||
     /queue_exceeded|rate.limit|too many requests|high traffic|capacity|overloaded|cooldown/i.test(details)
   ) {
-    return new GuideError(429, 'busy', 'Cerebras is busy. Your frame is ready for another try.');
+    return new GuideError(429, 'busy', 'The model is busy. You can retry this frame.');
   }
   if (/invalid.api.key|unauthorized|authentication.failed|invalid.auth/i.test(details)) {
     return new GuideError(
       502,
       'credentials',
-      'Cerebras declined the project credentials. Check the cloud configuration.',
+      'The provider declined the API key. Check your model settings.',
     );
   }
   return new GuideError(
@@ -132,7 +131,7 @@ export function parseTurn(envelope, frame) {
     throw new GuideError(
       502,
       'invalid_reply',
-      'Kimi did not return a usable spatial answer. Try a more specific question.',
+      'The model did not return a usable visual answer. Try again or choose another model.',
     );
   }
   if (result?.lookup && !result.answer) return { lookup: result.lookup };
