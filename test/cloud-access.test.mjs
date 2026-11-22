@@ -77,8 +77,11 @@ test('the cloud relay uses only the configured IAM identity, destination and API
     }),
   };
   const seen = [];
+  let redirectBackend = false;
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     seen.push(String(url));
+    // Workers implements manual and follow. Credentials must stay with the original destination.
+    assert.equal(options.redirect, 'manual');
     if (String(url) === 'https://oauth2.googleapis.com/token') {
       const claim = JSON.parse(Buffer.from(options.body.get('assertion').split('.')[1], 'base64url'));
       assert.equal(claim.target_audience, service);
@@ -91,6 +94,9 @@ test('the cloud relay uses only the configured IAM identity, destination and API
     assert.equal(headers.get('Cookie'), null);
     assert.equal(headers.get('Authorization'), null);
     assert.equal(headers.get('oai-authenticated-user-email'), null);
+    if (redirectBackend) {
+      return Response.json({}, { status: 307, headers: { Location: 'https://other.example' } });
+    }
     return Response.json({ answer: 'Example' });
   });
   const reply = await serveSite(
@@ -104,6 +110,16 @@ test('the cloud relay uses only the configured IAM identity, destination and API
   );
   assert.equal(reply.status, 200);
   assert.deepEqual(seen, ['https://oauth2.googleapis.com/token', service + '/api/guide']);
+
+  redirectBackend = true;
+  const next = await serveSite(
+    request('/api/guide', { method: 'POST', headers: guideHeaders, body: '{}' }),
+    settings,
+    assets,
+  );
+  assert.equal(next.status, 503);
+  assert.equal(next.headers.get('Location'), null);
+  assert.deepEqual(seen.slice(2), [service + '/api/guide']);
 });
 
 test('OpenClaw is loopback-only with no callable agent tools or interactive command surfaces', async () => {

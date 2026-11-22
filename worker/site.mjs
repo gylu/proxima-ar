@@ -58,7 +58,7 @@ async function cloudIdentity(rawCredential, audience, trace) {
   trace.stage = 'identity-exchange';
   const response = await fetch(googleTokenUrl, {
     method: 'POST',
-    redirect: 'error',
+    redirect: 'manual',
     signal: AbortSignal.timeout(10000),
     body: new URLSearchParams({
       grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
@@ -97,7 +97,8 @@ async function api(request, url, env) {
       service.protocol !== 'https:' ||
       !service.hostname.endsWith('.run.app') ||
       (service.pathname && service.pathname !== '/') ||
-      service.search || service.hash ||
+      service.search ||
+      service.hash ||
       service.username ||
       service.password ||
       service.port
@@ -128,7 +129,7 @@ async function api(request, url, env) {
     const upstream = await fetch(service.origin + url.pathname, {
       method: request.method,
       body,
-      redirect: 'error',
+      redirect: 'manual',
       signal: request.signal,
       headers: {
         'X-Serverless-Authorization': 'Bearer ' + identity,
@@ -140,7 +141,8 @@ async function api(request, url, env) {
       },
     });
     const type = upstream.headers.get('content-type')?.split(';')[0];
-    if (!['application/json', 'application/x-ndjson'].includes(type)) {
+    const redirected = upstream.status >= 300 && upstream.status < 400;
+    if (redirected || !['application/json', 'application/x-ndjson'].includes(type)) {
       await upstream.body?.cancel();
       return unavailable('cloud-response', upstream.status);
     }
