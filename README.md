@@ -32,7 +32,7 @@ Set `PROXIMA_SERVICE_URL` to the canonical `run.app` service origin in Sites. St
 2. Kimi answers from the frame when it can. If it needs the device’s documentation, it identifies the manufacturer, device and topic and asks the companion to look them up. Proxima shows the search in progress, sends the relevant passages back through OpenClaw, and links the documents alongside the answer. If the image does not identify a necessary model number, Kimi can ask for it. An unsuccessful search is shown in the answer.
 3. Ask follow-ups in the same scene. The companion keeps retrieved passages in memory for up to an hour and the browser includes the three most recent exchanges. Replacing the scene starts a fresh conversation. **Session log** keeps the answers, sources and measured response times for the open browser tab.
 
-To see a part, ask “Can you mark the ampersand key?” in **Visual guide**. Proxima draws a red ring on the photo or tracks it on the camera. For small printed controls, the cloud service enlarges visible legends and asks the vision model to select and confirm one. Each selection maps to pixels in the captured frame. If live tracking loses the part, the marked camera frame appears below the live view. An unresolved request shows a prompt to move closer.
+To see a part, ask “Can you mark the ampersand key?” in **Visual guide**. Proxima draws a red ring on the photo or tracks it on the camera. For small printed controls, the cloud service enlarges visible legends and asks the vision model to select and confirm one. Each selection maps to pixels in the captured frame. When the part leaves view, the marked camera frame appears below the video. Bring the part back into view and the live ring returns once the browser recognizes it. An unresolved request shows a prompt to move closer.
 
 **Set your own anchors** opens the same scene. Tap a part to name or reposition it, or attach a text-based PDF, TXT or Markdown file under **Field manual**. **Anchor map only** lets Kimi answer from named points without a photo upload. The sample board’s four hand-mapped markers are available in this view.
 
@@ -42,7 +42,7 @@ To see a part, ask “Can you mark the ampersand key?” in **Visual guide**. Pr
 
 ```text
 Browser camera or image
-   ├─ Local JSFeat corner detection and pyramidal optical flow → overlay
+   ├─ Local optical flow and visual matching against the question frame → overlay
    └─ On Ask: JPEG + frame ID + question + optional scene context
           → owner-authenticated Sites Worker → private cloud service → OpenClaw /v1/responses
           → private model relay → selected provider (default: Kimi K3.1 Pro on Cerebras)
@@ -51,7 +51,7 @@ Browser camera or image
                 → OpenClaw → selected model → answer with sources → browser
 ```
 
-The snapshot and tracking baseline use the same pixels. Forward–backward optical flow checks reject inconsistent tracks. A local similarity transform maps the original point to the current frame, and a changed scene invalidates outstanding replies. Tracking is two-dimensional and targets up to 30 updates per second. Out-of-view targets require reacquisition. Camera input runs locally between questions.
+The snapshot and tracking baseline use the same pixels. Forward–backward optical flow checks reject inconsistent tracks. A local similarity transform maps the original point to the current frame, and a changed scene invalidates outstanding replies. Tracking is two-dimensional and targets up to 30 updates per second. When a target disappears, the browser searches returning frames using multi-scale ORB feature matches and compares the target and its surroundings against the question frame. A second live frame confirms a match before the ring reappears. This runs on the device between questions. Stopping the camera clears its tracking data.
 
 The same `/api/guide` contract accepts an unlabeled image from web or future native clients. Clients can pass back a `contextId` with a follow-up. The companion uses Parallel’s Search MCP to search and read manufacturer pages or PDFs using product and procedure terms. Camera frames go through OpenClaw to the selected provider. Poll `/api/status` for the installed OpenClaw version and gateway readiness.
 

@@ -199,16 +199,15 @@ export class Scene {
         (this.width === incoming.videoWidth && this.height === incoming.videoHeight)
       )
         return;
-      this.epoch++;
-      this.anchors = [];
-      this.selected = null;
+      if (!incoming.videoWidth || !incoming.videoHeight) return;
       this.width = incoming.videoWidth;
       this.height = incoming.videoHeight;
-      if (this.width && this.height) {
-        this.tracker = new FrameTracker(this.width, this.height);
-        this.tracker.seed(incoming);
-        this.configureView();
-      }
+      const previous = this.tracker;
+      this.tracker = new FrameTracker(this.width, this.height);
+      this.tracker.seed(incoming);
+      this.tracker.resumeCamera(previous, this.anchors);
+      this.positions.clear();
+      this.configureView();
     };
     let previousTime = -1,
       lastTick = 0;
@@ -228,16 +227,21 @@ export class Scene {
 
   position(anchor) {
     if (this.source !== 'camera') return anchor;
-    if (anchor.lost) return null;
-    if (!this.positions.has(anchor.id)) this.positions.set(anchor.id, this.tracker.project(anchor));
+    if (!this.positions.has(anchor.id)) {
+      const point = this.tracker.follow(anchor);
+      this.positions.set(anchor.id, point);
+      anchor.lost = !point;
+    }
     return this.positions.get(anchor.id);
   }
 
   updatePositions() {
     this.positions.clear();
-    for (const anchor of this.anchors) {
-      if (!this.position(anchor)) anchor.lost = true;
-    }
+    const selected = this.anchors.find((a) => a.id === this.selected);
+    if (selected) this.position(selected);
+    const remaining = this.anchors.filter((a) => a !== selected);
+    remaining.sort((a, b) => this.tracker.searchTime(a) - this.tracker.searchTime(b));
+    for (const anchor of remaining) this.position(anchor);
   }
 
   rebase(frame) {
@@ -314,7 +318,12 @@ export class Scene {
     };
     this.anchors.push(a);
     this.selected = a.id;
-    this.positions.delete(a.id);
+    this.rememberAnchor(a);
     return a;
+  }
+
+  rememberAnchor(anchor) {
+    this.tracker?.remember(anchor);
+    this.positions.delete(anchor.id);
   }
 }

@@ -195,7 +195,7 @@ function chooseAnchor(id) {
   scene.selected = id;
   showOverlays = true;
   referenceReading();
-  if (!scene.position(a)) notice('Tracking lost this part. Point the camera at it and ask again.');
+  if (!scene.position(a)) notice('Looking for this part. Bring it back into view.');
   else notice();
   renderMotion();
 }
@@ -254,7 +254,7 @@ function renderMotion() {
     card.classList.toggle('active', selected);
     card.classList.toggle('lost', !p);
     card.setAttribute('aria-pressed', String(selected));
-    const category = p ? a.group : 'Tracking lost';
+    const category = p ? a.group : 'Looking for part';
     if (card.querySelector('small').textContent !== category)
       card.querySelector('small').textContent = category;
     if (p) {
@@ -268,7 +268,7 @@ function renderMotion() {
     const a = selectedAnchor();
     $('footer-tracking').textContent =
       a && !scene.position(a)
-        ? 'Target lost · reacquire the part'
+        ? 'Looking for the part on camera'
         : 'Optical flow · ' + (scene.tracker?.tracks.length ?? 0) + ' local features';
   }
   renderMarkerStatus();
@@ -285,12 +285,14 @@ function renderMarkerStatus() {
     $('captured-ring').style.left = (answer.target.x * 100) + '%';
     $('captured-ring').style.top = (answer.target.y * 100) + '%';
     capture.dataset.frame = answer.frameId;
-  } else if (!fallback && capture.dataset.frame) {
+  } else if (capture.dataset.frame && capture.dataset.frame !== answer?.frameId) {
     $('captured-photo').removeAttribute('src');
     delete capture.dataset.frame;
   }
   capture.hidden = !fallback;
-  const message = advanced ? '' : fallback ? 'Live tracking lost the part. See the marked frame below the camera.'
+  const message = advanced ? '' : fallback ? (selected
+    ? 'Looking for the part on camera. The marked frame is below.'
+    : 'See the marked frame below the camera.')
     : livePoint ? (scene.source === 'camera' ? 'Marked on the live camera.' : 'Marked in your photo.')
     : answer?.markerStatus === 'unavailable' ? 'The visual locator couldn’t finish. Use “Run same frame again” to retry.'
     : answer?.markerStatus === 'unlocated' ? 'I couldn’t place a marker in this frame. Move closer or try another angle, then ask again.'
@@ -602,7 +604,7 @@ async function ask(event, repeat = false, voiceFrame) {
     showAnswer(lastAnswer);
     const locked = target && scene.position(target);
     if (advanced && result.target && !locked)
-      notice('The model identified a part in the saved frame. Reframe and ask again to position its marker.');
+      notice('The model identified the part in the saved frame. Bring it back into view for live tracking.');
     if (result.target && !advanced) activity.line(locked ? 'Placed the marker on your view.' : 'Marked the frame captured with this question.');
     else if (result.markerStatus === 'unlocated') activity.line('Could not locate the requested part in this frame.');
     else if (result.markerStatus === 'unavailable') activity.line('Visual marker unavailable. This frame is saved for retry.');
@@ -841,7 +843,7 @@ function about() {
       node(
         'p',
         scene.source === 'camera'
-          ? 'Features near each anchor are tracked locally between frames. If tracking loses sight of a part, its marker disappears until you reacquire it.'
+          ? 'Your browser follows the marked part as you move. If it leaves view, the browser looks for its shape and nearby details so the marker can return automatically.'
           : 'This image stays in the browser until you ask a question. Click a part to add a named anchor.',
       ),
     );
@@ -995,7 +997,7 @@ $('plane').addEventListener(
       lost: false,
       note: 'You set the location of this part in the current frame.',
     });
-    scene.positions.delete(anchor.id);
+    scene.rememberAnchor(anchor);
     setMoveMode();
     notice();
     renderAnchors();
