@@ -1,12 +1,13 @@
 import { readEvents } from './stream-events.js';
+import { apiFetch } from './api.js';
 
 const maxBytes = 45 * 16000 * 2;
 const maxPacket = 25600;
 const headers = { 'Content-Type': 'application/json', 'X-Proxima-Client': 'workspace' };
 
 async function post(body, signal, affinity) {
-  const response = await fetch('/api/voice', {
-    method: 'POST', credentials: 'same-origin', redirect: 'error', signal,
+  const response = await apiFetch('voice', {
+    method: 'POST', signal,
     headers: { ...headers, ...(affinity && { 'X-Proxima-Voice-Route': affinity }),
       Accept: body.action === 'start' ? 'application/x-ndjson' : 'application/json' },
     body: JSON.stringify(body),

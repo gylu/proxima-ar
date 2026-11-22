@@ -2,14 +2,18 @@
 
 A visual guide to the hardware in front of you. Upload a photo or point your camera, ask a question, and Proxima answers. Kimi K3.1 Pro on Cerebras can highlight a visible part or consult the manufacturer’s documentation.
 
+Open the live demo from the website link in this repository’s **About** section.
+
 ## System architecture
 
 ```mermaid
 flowchart TB
     accTitle: Proxima AR system architecture
-    accDescr: The browser tracks the marker locally. A signed-in request goes through the Sites Worker to a private Cloud Run service. OpenClaw calls the selected model through a relay. The service can also transcribe audio and look up manufacturer manuals.
+    accDescr: The browser tracks the marker locally. GitHub Pages serves the frontend. A public gateway checks a durable daily allowance before passing a request to a private Cloud Run service. OpenClaw calls the selected model through a relay. The service can also transcribe audio and look up manufacturer manuals.
     browser["Browser<br/>Camera, photo, or microphone<br/>On-device marker tracking"]
-    site["Sites Worker<br/>Sign-in and owner check"]
+    site["Public Cloud Run gateway<br/>Request validation and daily limits"]
+    pages["GitHub Pages"] -->|"Website assets"| browser
+    site <-->|"Reserve usage"| quota["Private Cloud Storage bucket<br/>Daily aggregate counters"]
     subgraph cloud["Private Google Cloud Run"]
         api["Guidance and voice API"]
         voice["Voice sessions"]
@@ -30,23 +34,20 @@ flowchart TB
 
 The browser captures a frame when you ask a question. It uses JSFeat to track a returned marker as the camera moves. For a spoken question, the backend streams audio to Speech-to-Text, and the browser submits the finished transcript with the saved frame. If the model requests a manual, the guidance API retrieves relevant passages and sends them through OpenClaw for a second answer.
 
-## Private hosting
+## Public demo and usage limits
 
-The private website serves the camera UI and its API on one HTTPS origin. Sites handles sign-in and the owner-only access list. The Worker also checks the signed-in visitor against `PROXIMA_OWNER_EMAIL` on every route. A holder of a Site service token still needs a signed-in owner identity to open Proxima or ask a question.
+GitHub Pages serves the camera interface. The public Cloud Run gateway accepts three API paths and forwards validated questions and microphone audio to the private guide service. OpenClaw and its model relay listen on loopback inside that service. Its agent tools, browser control and shell commands are disabled. The public gateway authenticates with its attached Google service account and a shared token. Secret Manager supplies the project Cerebras key only to the private service.
 
-The live-guidance backend runs in a private Google Cloud Run container. It accepts `/api/status`, `/api/voice` and `/api/guide` from the authenticated Site. OpenClaw listens on loopback inside the container. The gateway has a fresh private workspace under the container’s temporary directory, a read-only configuration, a loopback model relay, and disabled agent tools, browser control, chat commands, and scheduled tasks. The Node process runs as the container’s unprivileged `node` user. A camera stream stays in the browser between questions.
+Visitors share **25 questions and 300 seconds of voice per UTC day**. The gateway reserves a question before contacting the guide, so a provider failure can still use one question. Opening a microphone session reserves its first second. Additional audio is metered from the decoded 16 kHz mono PCM, rounded up to the next second per session. Repeated packets count once. Both limits apply when visitors bring their own provider key.
 
-The Worker needs the service’s HTTPS URL, an invocation-only Google service account credential and a separate service token. The container reads `CEREBRAS_API_KEY` and the matching `PROXIMA_SERVICE_TOKEN` from its cloud secret bindings. When the backend is unconfigured, the UI still opens and live answers show as offline. The application has no laptop fallback.
+A private Cloud Storage object holds the two aggregate counters for each day. Conditional writes prevent overlapping requests or a restarted container from exceeding the allowance. If the counters are unavailable, the gateway declines the request. The quota object contains only aggregate usage. The browser keeps its session log in the open tab, and the hosting platforms maintain their own infrastructure access logs. Each Cloud Run service is configured for zero to one instance. These limits bound application use. Incoming HTTP traffic and other Google Cloud costs are still billable. [Google Cloud billing budgets](https://cloud.google.com/billing/docs/how-to/budgets)
 
-Use `npm test` for the access, model contract and geometry checks and `npm run build` for the standalone Sites Worker. Frontend source lives in `web/`. The Dockerfile and cloud upload allowlists include the Node backend and its text-excerpt helper. Local credentials, prior runtime data and the frontend source bundle are excluded from the container build context.
+### Deploy
 
-### Connect a Cloud Run service
-
-Voice input uses the Google Cloud Speech-to-Text V2 API (`speech.googleapis.com`). Enable it in the Cloud Run project and grant `roles/speech.client` to the runtime service account. The Google client uses that attached identity. The open microphone session and its ordered audio uploads share the existing single-instance Cloud Run service.
-
-In the chosen Google Cloud project, use dedicated `proxima-runtime`, `proxima-build`, and `proxima-invoker` service accounts. Give the runtime account Secret Manager accessor permission on `proxima-cerebras` and `proxima-service-token` only. The build account needs Cloud Run Builder permissions. Run `sh scripts/deploy-cloud.sh PROJECT_ID REGION` from the checkout. It enables Cloud Run’s invoker check, disables anonymous access and scales between zero and one instance. Grant the invoker account `roles/run.invoker` on `proxima-guide` only.
-
-Set `PROXIMA_SERVICE_URL` to the canonical `run.app` service origin in Sites. Store the invoker’s JSON credential under `PROXIMA_CLOUD_INVOKER` and the shared random service token under `PROXIMA_SERVICE_TOKEN` as Site secrets. The edge service exchanges a signed assertion for a short-lived Google ID token. Publish the Site with the new variables and check the signed-in **Runtime connection** panel. The default Cerebras project key belongs in the backend secret. [Cloud Run service authentication](https://docs.cloud.google.com/run/docs/authenticating/service-to-service)
+1. Provision the private guide with `sh scripts/deploy-cloud.sh PROJECT_ID REGION`. The runtime account needs access to the two Proxima secrets and `roles/speech.client` for Google Cloud Speech-to-Text V2. The build account needs Cloud Run Builder permissions.
+2. Run `sh scripts/deploy-public.sh PROJECT_ID REGION PAGES_HTTPS_ORIGIN` with the HTTPS origin of the GitHub Pages site, without its project path. This provisions a dedicated gateway identity, a private quota bucket and the gateway container. Give anonymous invoker access to **proxima-public** after verifying its quotas. Keep **proxima-guide** IAM-protected.
+3. In the repository settings, choose GitHub Actions as the Pages source and set the Actions variable `PROXIMA_PUBLIC_API_ORIGIN` to the HTTPS origin of **proxima-public**. Run the **Publish GitHub Pages** workflow. Its artifact contains only browser assets and the public gateway address.
+4. Run `npm test` for the quota, voice, vision and access checks. To build the same Pages artifact locally, set `PROXIMA_PUBLIC_API_ORIGIN` and run `npm run build`. The private and public container sources live in `server/` and `gateway/`.
 
 ## Model comparison
 
@@ -72,7 +73,7 @@ To see a part, ask “Can you mark the ampersand key?” in **Visual guide**. Pr
 
 The snapshot and tracking baseline use the same pixels. Forward–backward optical flow checks reject inconsistent tracks. A local similarity transform maps the original point to the current frame, and a changed scene invalidates outstanding replies. Tracking is two-dimensional and targets up to 30 updates per second. When a target disappears, the browser searches returning frames using multi-scale ORB feature matches and compares the target and its surroundings against the question frame. A second live frame confirms a match before the ring reappears. This runs on the device between questions. Stopping the camera clears its tracking data.
 
-The same `/api/guide` contract accepts an unlabeled image from web or future native clients. Clients can pass back a `contextId` with a follow-up. The companion uses Parallel’s Search MCP to search and read manufacturer pages or PDFs using product and procedure terms. Camera frames go through OpenClaw to the selected provider. Poll `/api/status` for the installed OpenClaw version and gateway readiness.
+The same `/api/guide` contract accepts an unlabeled image from web or future native clients. Clients can pass back a `contextId` with a follow-up. The companion uses Parallel’s Search MCP to search and read manufacturer pages or PDFs using product and procedure terms. Camera frames go through OpenClaw to the selected provider. The public status endpoint reports on-demand availability without waking OpenClaw. An accepted question starts the private service when needed.
 
 Documentation lookups are limited to a maintained manufacturer list, bounded product-model terms and predefined procedure topics. The backend supplies all lookup destinations. Text found inside a photo or manual can still mislead the model’s answer.
 

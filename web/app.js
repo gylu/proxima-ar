@@ -6,6 +6,7 @@ import { requestActivity, speedLabel } from './request-activity.js';
 import { throughputChart } from './throughput.js';
 import { VoiceInput } from './voice.js';
 import { readEvents } from './stream-events.js';
+import { apiFetch, publicDemo } from './api.js';
 
 const $ = (id) => document.getElementById(id);
 const logs = [];
@@ -402,6 +403,7 @@ function runtimeLabel() {
   return (
     {
       ready: 'Runtime ready',
+      on_demand: 'Ready on request',
       starting: 'Runtime starting',
       key_missing: 'Key needed',
       offline: 'Runtime offline',
@@ -413,7 +415,7 @@ function runtimeLabel() {
 async function checkRuntime() {
   clearTimeout(statusTimer);
   try {
-    const r = await fetch('/api/status', { signal: AbortSignal.timeout(60000), cache: 'no-store' });
+    const r = await apiFetch('status', { signal: AbortSignal.timeout(60000), cache: 'no-store' });
     if (!r.ok) throw new Error();
     const body = await r.json();
     if (body.model !== 'moonshotai-kimi-k3.1-pro-trial' || typeof body.runtime !== 'string')
@@ -425,7 +427,7 @@ async function checkRuntime() {
     runtime = 'offline';
   }
   $('connection-label').textContent = runtimeLabel();
-  $('status-dot').classList.toggle('ready', runtime === 'ready');
+  $('status-dot').classList.toggle('ready', runtime === 'ready' || runtime === 'on_demand');
   if (runtime === 'starting') statusTimer = setTimeout(checkRuntime, 3500);
   if (dialogKind === 'connection' && $('dialog').open) renderConnection();
   return runtime;
@@ -515,15 +517,15 @@ async function ask(event, repeat = false, voiceFrame) {
       false,
       'scan-eye',
     );
-    if (runtime !== 'ready') {
+    if (!['ready', 'on_demand'].includes(runtime)) {
       activity.line('Checking the private cloud connection.');
       await checkRuntime();
       if (!current()) return;
-      if (runtime !== 'ready')
+      if (!['ready', 'on_demand'].includes(runtime))
         throw new Error('The cloud service could not connect. Your captured frame is available to retry.');
     }
     activity.line('Sending your question to the private cloud service.');
-    const r = await fetch('/api/guide', {
+    const r = await apiFetch('guide', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -539,7 +541,7 @@ async function ask(event, repeat = false, voiceFrame) {
           allowFallback: route.allowFallback,
         },
       }),
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(135000)]),
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(publicDemo ? 175000 : 135000)]),
     });
     if (!current()) return;
     const result = await readAnswer(r, (phase, detail) => {
@@ -639,7 +641,7 @@ async function ask(event, repeat = false, voiceFrame) {
       description = 'The request timed out. Retry the saved frame or choose another model.';
     setReading(
       'Request status',
-      error.code === 'busy' ? providerName + ' is busy' : 'Guidance unavailable',
+      error.code === 'daily_limit' ? 'Daily demo limit reached' : error.code === 'busy' ? providerName + ' is busy' : 'Guidance unavailable',
       description,
       true,
       'activity',
@@ -672,7 +674,7 @@ async function readAnswer(response, onProgress) {
       });
     }
     if (response.status === 401 || response.status === 403 || response.redirected)
-      throw new Error('Sign in to the private site and try again.');
+      throw new Error(publicDemo ? 'Open the GitHub Pages demo and retry your question.' : 'Sign in to the private site and try again.');
     throw new Error('The cloud connection ended before the answer arrived. Retry the saved frame.');
   }
   for await (const event of readEvents(response)) {
@@ -695,6 +697,7 @@ function openDialog(kind, title) {
 function renderConnection() {
   const body = openDialog('connection', 'Runtime connection');
   const info = {
+    on_demand: 'The public gateway is available. An accepted question starts the private OpenClaw service when needed.',
     ready:
       'OpenClaw ' +
       harnessVersion +
@@ -1065,4 +1068,5 @@ window.addEventListener('pageshow', (e) => {
   if (e.persisted) scene.showEmpty();
 });
 scene.showEmpty();
+$('public-allowance').hidden = !publicDemo;
 void checkRuntime();

@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node server/start.mjs",
     "test": "node --test test/*.test.mjs",
-    "build": "node scripts/build-site.mjs"
+    "build": "node scripts/build-pages.mjs",
+    "build:sites": "node scripts/build-site.mjs"
   },
   "dependencies": {
     "@google-cloud/speech": "8.2.1",

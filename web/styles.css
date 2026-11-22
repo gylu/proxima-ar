@@ -2001,3 +2001,11 @@ details[open] > summary::after {
 @media (max-width: 520px) {
   .request-measures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+#public-allowance {
+  display: block;
+  margin-top: 0.6rem;
+  color: var(--muted, #54604f);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+#public-allowance[hidden] { display: none; }

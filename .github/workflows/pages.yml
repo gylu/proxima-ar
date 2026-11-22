@@ -1,0 +1,35 @@
+name: Publish GitHub Pages
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['web/**', 'scripts/build-pages.mjs', '.github/workflows/pages.yml']
+permissions:
+  contents: read
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: ${{ vars.PROXIMA_PUBLIC_API_ORIGIN != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/configure-pages@v5
+      - run: node scripts/build-pages.mjs
+        env:
+          PROXIMA_PUBLIC_API_ORIGIN: ${{ vars.PROXIMA_PUBLIC_API_ORIGIN }}
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/pages
+      - id: deployment
+        uses: actions/deploy-pages@v4
