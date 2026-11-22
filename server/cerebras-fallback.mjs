@@ -4,6 +4,7 @@ import { queryProvider } from './provider.mjs';
 import {
   attachedPhoto,
   describePhotoMessages,
+  frameObservationFormat,
   readDescription,
   textGuideMessages,
 } from './frame-description.mjs';
@@ -55,12 +56,13 @@ async function compatibleModels(key, photo, signal, fetcher) {
     if (item?.deprecated === true) return [];
     const vision = item?.capabilities?.vision ?? knownVisionModels.has(id);
     const compatible = id === gptOssModel || vision === true || (!photo && item?.capabilities?.streaming);
-    return compatible ? [{ id, vision: vision === true }] : [];
+    const structured = item?.capabilities?.structured_outputs ?? id === qwenModel;
+    return compatible ? [{ id, vision: vision === true, structured: structured === true }] : [];
   });
   const ids = new Set(eligible.map((m) => m.id));
   const preferred = [gptOssModel, qwenModel].filter((id) => ids.has(id));
   const candidates = [...new Set([...preferred, ...ids])];
-  const readers = candidates.filter((id) => eligible.some((m) => m.id === id && m.vision));
+  const readers = candidates.map((id) => eligible.find((m) => m.id === id)).filter((m) => m.vision);
   return { candidates, readers };
 }
 
@@ -75,26 +77,26 @@ function unavailable(error, timedOut) {
 }
 
 async function observeFrame(state, route, photo, question, chain, progress, fetcher) {
-  const reader = state.catalog.readers.find((id) => !state.tried.has(id));
+  const reader = state.catalog.readers.find(({ id }) => !state.tried.has(id));
   if (!reader) return null;
   const limit = AbortSignal.timeout(6500);
-  progress('describing_photo', { model: reader });
+  progress('describing_photo', { model: reader.id });
   try {
     const result = await queryProvider(
-      { ...route, model: reader },
+      { ...route, model: reader.id, responseFormat: reader.structured ? frameObservationFormat : undefined },
       describePhotoMessages(photo, question),
       AbortSignal.any([chain, limit]),
       progress,
       fetcher,
     );
-    return readDescription(result.text, reader);
+    return readDescription(result.text, reader.id);
   } catch (error) {
     chain.throwIfAborted();
     const failure = error.code === 'model_request' ? error : unavailable(error, limit.aborted);
-    state.tried.add(reader);
+    state.tried.add(reader.id);
     progress('model_unavailable', {
       provider: route.provider,
-      model: reader,
+      model: reader.id,
       reason: failure.code,
       status: failure.providerStatus,
     });

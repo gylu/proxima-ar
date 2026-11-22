@@ -111,6 +111,10 @@ test('GPT-OSS answers image questions from a key-scoped vision description and r
   );
   assert.deepEqual(server.bodies[1].messages.at(-1).content[1], photo[1].content[1]);
   assert.match(server.bodies[1].messages.at(-1).content[0].text, /What color is the board/);
+  const format = server.bodies[1].response_format;
+  assert.equal(format.type, 'json_schema');
+  assert.equal(format.json_schema.strict, true);
+  assert.deepEqual(format.json_schema.schema.required, ['description', 'point']);
   const gpt = server.bodies[2];
   assert.equal(gpt.reasoning_effort, 'low');
   assert.deepEqual(gpt.response_format, { type: 'json_object' });

@@ -179,6 +179,7 @@ export async function queryProvider(route, messages, signal, progress, fetcher =
     Object.assign(body, { reasoning_effort: 'low', temperature: 0.2, top_p: 1 });
   if (provider === 'cerebras' && model === gptOssModel)
     Object.assign(body, { reasoning_effort: 'low', response_format: { type: 'json_object' } });
+  if (provider === 'cerebras' && route.responseFormat) body.response_format = route.responseFormat;
   const encoded = JSON.stringify(body);
   for (let attempt = 1; ; attempt++) {
     signal.throwIfAborted();

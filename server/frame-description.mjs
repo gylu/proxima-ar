@@ -1,3 +1,30 @@
+export const frameObservationFormat = {
+  type: 'json_schema',
+  json_schema: {
+    name: 'frame_observation',
+    strict: true,
+    schema: {
+      type: 'object',
+      properties: {
+        description: { type: 'string' },
+        point: {
+          anyOf: [
+            { type: 'null' },
+            {
+              type: 'object',
+              properties: { label: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' } },
+              required: ['label', 'x', 'y'],
+              additionalProperties: false,
+            },
+          ],
+        },
+      },
+      required: ['description', 'point'],
+      additionalProperties: false,
+    },
+  },
+};
+
 // The gateway receives one validated JPEG. GPT-OSS receives only plain text.
 export function attachedPhoto(messages) {
   for (const message of messages) {
