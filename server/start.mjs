@@ -1,96 +1,32 @@
 import http from 'node:http';
-import { readFile, writeFile, mkdir, stat, open } from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
-import { randomBytes } from 'node:crypto';
-import { spawn, spawnSync } from 'node:child_process';
-import { homedir } from 'node:os';
-import { parseEnv } from 'node:util';
+import { readFile, writeFile, mkdir, mkdtemp, stat, open } from 'node:fs/promises';
+import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { setTimeout as wait } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { MODEL, BASE_URL, GuideError, readFrame, serviceError } from './guidance.mjs';
+import { MODEL, GuideError, readFrame, serviceError } from './guidance.mjs';
 
 import { createGuide } from './guide-loop.mjs';
+import { gatewayConfig } from './openclaw-config.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const runtime = path.join(root, '.runtime');
-const dist = path.join(root, 'dist');
-const port = Number(process.env.PORT || 4317);
-const gatewayPort = Number(process.env.PROXIMA_GATEWAY_PORT || 19321);
+const port = Number(process.env.PORT || 8080);
+const gatewayPort = 19321;
 const gateway = 'http://127.0.0.1:' + gatewayPort;
-const allowedOrigins = new Set([
-  'http://localhost:' + port,
-  'http://127.0.0.1:' + port,
-  'https://proxima.example.invalid',
-]);
-const settings = { ...process.env };
-try {
-  Object.assign(settings, parseEnv(await readFile(path.join(root, '../env/.env'), 'utf8')));
-} catch (error) {
-  if (error.code !== 'ENOENT') throw error;
+const key = process.env.CEREBRAS_API_KEY?.trim();
+const serviceToken = process.env.PROXIMA_SERVICE_TOKEN;
+if (process.env.PROXIMA_RUNTIME !== 'cloud' || !key || !serviceToken || serviceToken.length < 32) {
+  throw new Error('This service requires the private cloud runtime and its mounted service credentials.');
 }
-const key = settings.CEREBRAS_API_KEY?.trim();
+const digest = (value) => createHash('sha256').update(value).digest();
+const expectedToken = digest(serviceToken);
+const runtime = await mkdtemp(path.join(tmpdir(), 'proxima-openclaw-'));
 const token = randomBytes(32).toString('hex');
 await mkdir(path.join(runtime, 'workspace'), { recursive: true, mode: 0o700 });
 const configPath = path.join(runtime, 'openclaw.json');
-const activeModel = 'cerebras/' + MODEL;
-const config = {
-  gateway: {
-    port: gatewayPort,
-    bind: 'loopback',
-    mode: 'local',
-    auth: { mode: 'token' },
-    controlUi: { enabled: false },
-    http: {
-      endpoints: {
-        responses: {
-          enabled: true,
-          images: { allowUrl: false, allowedMimes: ['image/jpeg'] },
-          files: { allowUrl: false },
-        },
-      },
-    },
-  },
-  agents: {
-    defaults: {
-      workspace: path.join(runtime, 'workspace'),
-      model: { primary: activeModel, fallbacks: [] },
-      skipBootstrap: true,
-      contextInjection: 'never',
-      skills: [],
-      thinkingDefault: 'low',
-    },
-  },
-  models: {
-    mode: 'replace',
-    catalogRefresh: { enabled: false },
-    providers: {
-      cerebras: {
-        api: 'openai-completions',
-        baseUrl: BASE_URL,
-        apiKey: '${CEREBRAS_API_KEY}',
-        models: [
-          {
-            id: MODEL,
-            name: 'Kimi K3.1 Pro',
-            input: ['text', 'image'],
-            reasoning: true,
-            contextWindow: 65536,
-            maxTokens: 2048,
-            compat: {
-              supportsReasoningEffort: true,
-              supportedReasoningEfforts: ['low'],
-              supportsTools: false,
-              supportsDeveloperRole: false,
-              supportsStore: false,
-            },
-          },
-        ],
-      },
-    },
-  },
-  cron: { enabled: false },
-  tools: { deny: ['*'] },
-};
+const config = gatewayConfig(path.join(runtime, 'workspace'), gatewayPort);
 await writeFile(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
 const agentDir = path.join(runtime, 'agents/main/agent');
 await mkdir(agentDir, { recursive: true, mode: 0o700 });
@@ -102,39 +38,20 @@ await writeFile(
   { mode: 0o600 },
 );
 let harness;
-let gatewayState = key ? 'starting' : 'key_missing';
+let gatewayState = 'starting';
 let inFlight = false;
-
-function supportedNode(version) {
-  const [major, minor] = version.replace(/^v/, '').split('.').map(Number);
-  return (major === 24 && minor >= 16) || (major === 26 && minor >= 1) || major > 26;
-}
-function harnessNode() {
-  if (supportedNode(process.version)) return process.execPath;
-  const candidates = [
-    process.env.PROXIMA_NODE_BINARY,
-    path.join(homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node'),
-  ];
-  for (const binary of candidates.filter(Boolean)) {
-    const check = spawnSync(binary, ['--version'], { encoding: 'utf8', timeout: 3000 });
-    if (check.status === 0 && supportedNode(check.stdout.trim())) return binary;
-  }
-  throw new Error(
-    'OpenClaw requires Node 24.16+ LTS or Node 26.1+. Set PROXIMA_NODE_BINARY to its executable.',
-  );
-}
+const recentQuestions = [];
 
 async function startHarness() {
-  if (!key) return;
   const entry = path.join(root, 'node_modules/openclaw/openclaw.mjs');
   await stat(entry);
   const log = await open(path.join(runtime, 'gateway.log'), 'a', 0o600);
-  harness = spawn(harnessNode(), [entry, 'gateway', 'run'], {
+  harness = spawn(process.execPath, [entry, 'gateway', 'run'], {
     cwd: runtime,
     stdio: ['ignore', log.fd, log.fd],
     env: {
       PATH: process.env.PATH,
-      HOME: process.env.HOME,
+      HOME: runtime,
       OPENCLAW_HOME: runtime,
       TMPDIR: process.env.TMPDIR,
       OPENCLAW_STATE_DIR: runtime,
@@ -142,6 +59,7 @@ async function startHarness() {
       OPENCLAW_GATEWAY_TOKEN: token,
       CEREBRAS_API_KEY: key,
       OPENCLAW_NO_RESPAWN: '1',
+      OPENCLAW_CONFIG_READONLY: '1',
       OPENCLAW_DISABLE_BONJOUR: '1',
       NODE_ENV: 'production',
     },
@@ -194,11 +112,7 @@ async function parseBody(req) {
 
 async function runGateway(body, signal) {
   if (gatewayState !== 'ready' && (await getState()) !== 'ready') {
-    throw new GuideError(
-      503,
-      'offline',
-      'The local OpenClaw runtime is unavailable. Open Connection to check its status.',
-    );
+    throw new GuideError(503, 'offline', 'The private cloud guide is starting or unavailable. Please retry.');
   }
   const res = await fetch(gateway + '/v1/responses', {
     method: 'POST',
@@ -215,44 +129,19 @@ const openclawVersion = JSON.parse(
   await readFile(path.join(root, 'node_modules/openclaw/package.json'), 'utf8'),
 ).version;
 
-const mime = {
-  '.html': 'text/html; charset=utf-8',
-  '.css': 'text/css',
-  '.js': 'text/javascript',
-  '.mjs': 'text/javascript',
-  '.svg': 'image/svg+xml',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.png': 'image/png',
-  '.woff2': 'font/woff2',
-  '.txt': 'text/plain; charset=utf-8',
-  '.json': 'application/json',
-};
 function send(res, status, body) {
   if (res.destroyed || res.headersSent) return;
   res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(body));
 }
 const server = http.createServer(async (req, res) => {
-  const origin = req.headers.origin;
-  if (!['localhost:' + port, '127.0.0.1:' + port].includes(req.headers.host))
-    return send(res, 403, { error: 'Unknown host' });
-  if (origin && !allowedOrigins.has(origin)) return send(res, 403, { error: 'Unknown origin' });
-  if (origin) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Private-Network', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Proxima-Client');
-  }
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  const presented = req.headers['x-proxima-access'];
+  if (typeof presented !== 'string' || !timingSafeEqual(digest(presented), expectedToken)) {
+    return send(res, 403, { error: 'Private service' });
+  }
   try {
-    const pathname = new URL(req.url, 'http://localhost').pathname;
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204);
-      return res.end();
-    }
+    const pathname = req.url;
     if (pathname === '/api/status' && req.method === 'GET') {
       return send(res, 200, {
         runtime: await getState(),
@@ -262,17 +151,18 @@ const server = http.createServer(async (req, res) => {
       });
     }
     if (pathname === '/api/guide' && req.method === 'POST') {
-      if (
-        !allowedOrigins.has(origin) ||
-        req.headers['x-proxima-client'] !== 'workspace' ||
-        !req.headers['content-type']?.startsWith('application/json')
-      )
-        return send(res, 403, { error: 'Origin required' });
+      if (req.headers['content-type']?.split(';')[0] !== 'application/json')
+        return send(res, 415, { error: 'JSON required' });
       if (inFlight)
         throw new GuideError(429, 'in_flight', 'Another frame is processing. Try again in a moment.');
       const frame = readFrame(await parseBody(req));
       if (inFlight)
         throw new GuideError(429, 'in_flight', 'Another frame is processing. Try again in a moment.');
+      const now = Date.now();
+      while (recentQuestions.length && recentQuestions[0] <= now - 60000) recentQuestions.shift();
+      if (recentQuestions.length >= 12)
+        throw new GuideError(429, 'rate_limit', 'Please wait a minute before asking another question.');
+      recentQuestions.push(now);
       inFlight = true;
       const aborted = new AbortController();
       res.once('close', () => {
@@ -303,7 +193,7 @@ const server = http.createServer(async (req, res) => {
                   ? error.message
                   : signal.aborted
                     ? 'The request timed out. Try again.'
-                    : 'The local service could not finish this question.',
+                    : 'The cloud service could not finish this question.',
             });
           } finally {
             res.end();
@@ -314,21 +204,7 @@ const server = http.createServer(async (req, res) => {
       }
       return;
     }
-    if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'Method unavailable' });
-    const relative = decodeURIComponent(pathname === '/' ? '/index.html' : pathname);
-    const file = path.resolve(dist, '.' + relative);
-    if (!file.startsWith(dist + path.sep) || relative.split('/').some((part) => part.startsWith('.')))
-      return send(res, 404, { error: 'Missing' });
-    const info = await stat(file);
-    if (!info.isFile()) return send(res, 404, { error: 'Missing' });
-    res.writeHead(200, {
-      'Content-Type': mime[path.extname(file)] || 'application/octet-stream',
-      'Content-Length': info.size,
-    });
-    if (req.method === 'HEAD') return res.end();
-    createReadStream(file)
-      .on('error', () => res.destroy())
-      .pipe(res);
+    return send(res, 404, { error: 'Unknown route' });
   } catch (error) {
     if (error.code === 'ENOENT') return send(res, 404, { error: 'Missing' });
     if (error instanceof GuideError)
@@ -344,16 +220,24 @@ const server = http.createServer(async (req, res) => {
     });
   }
 });
-server.listen(port, '127.0.0.1', () => {
-  console.log('Proxima AR is available at http://localhost:' + port);
-  startHarness().catch((error) => {
-    gatewayState = 'offline';
-    console.error(
-      error.code === 'ENOENT'
-        ? 'OpenClaw is missing. Run npm ci.'
-        : 'OpenClaw startup failed. Check the supported Node version and .runtime/gateway.log.',
-    );
-  });
+// Cloud Run supplies startup CPU until the service accepts traffic. Warm the gateway before opening the port.
+async function startService() {
+  await startHarness();
+  const deadline = Date.now() + 120000;
+  while (gatewayState !== 'offline' && Date.now() < deadline) {
+    if (await probe()) {
+      gatewayState = 'ready';
+      server.listen(port, '0.0.0.0', () => console.log('Proxima cloud service is ready.'));
+      return;
+    }
+    await wait(400);
+  }
+  throw new Error('OpenClaw did not become ready.');
+}
+startService().catch(() => {
+  console.error('The private OpenClaw gateway failed to start.');
+  harness?.kill('SIGTERM');
+  process.exitCode = 1;
 });
 function close() {
   harness?.kill('SIGTERM');

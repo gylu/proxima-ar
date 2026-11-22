@@ -2,18 +2,21 @@
 
 A visual guide to the hardware in front of you. Upload a photo or point your camera, ask a question, and Proxima answers. Kimi K3.1 Pro on Cerebras can highlight a visible part or consult the manufacturer’s documentation.
 
-## Run the workbench
+## Private hosting
 
-Use Node 24.16 or later in the 24.x line, or Node 26.1 or newer. From the project directory run:
+The [private website](https://proxima.example.invalid) serves the camera UI and its API on one HTTPS origin. Sites handles sign-in and the owner-only access list. The Worker also checks the signed-in visitor against `PROXIMA_OWNER_EMAIL` on every route. A holder of a Site service token still needs a signed-in owner identity to open Proxima or ask a question.
 
-```sh
-npm ci
-npm start
-```
+The live-guidance backend is designed for a private Google Cloud Run container. Its application accepts `/api/status` and `/api/guide` from the authenticated Site. OpenClaw listens on loopback inside the container. The gateway has a fresh private workspace under the container’s temporary directory, a read-only configuration, a single Cerebras model, and disabled agent tools, browser control, chat commands, and scheduled tasks. The Node process runs as the container’s unprivileged `node` user. A camera stream stays in the browser between questions.
 
-Open [the local workbench](http://localhost:4317). The start command launches the web server and a project-specific OpenClaw gateway on loopback. The gateway uses the official `openclaw@2026.11.6` package and reads `CEREBRAS_API_KEY` from the environment or the adjacent `../env/.env`. A separate compatible Node binary can be supplied with `PROXIMA_NODE_BINARY`. The source checkout on this Mac can also use the bundled Codex Node runtime.
+The Worker needs the service’s HTTPS URL, an invocation-only Google service account credential and a separate service token. The container reads `CEREBRAS_API_KEY` and the matching `PROXIMA_SERVICE_TOKEN` from its cloud secret bindings. When the backend is unconfigured, the UI still opens and live answers show as offline. The application has no laptop fallback.
 
-The private hosted frontend can connect to the running companion on this computer through **Connection**. Allow local-network access if the browser prompts. The hosted reference scene, image upload and camera tracking also work independently. For a phone connected to the running Mac over Android USB debugging, `adb reverse tcp:4317 tcp:4317` makes `http://localhost:4317` available in the phone’s browser.
+Use `npm test` for the access, model contract and geometry checks and `npm run build` for the standalone Sites Worker. Frontend source lives in `web/`. The Dockerfile and cloud upload allowlists include the Node backend and its text-excerpt helper. Local credentials, prior runtime data and the frontend source bundle are excluded from the container build context.
+
+### Connect a Cloud Run service
+
+In the chosen Google Cloud project, use dedicated `proxima-runtime`, `proxima-build`, and `proxima-invoker` service accounts. Give the runtime account Secret Manager accessor permission on `proxima-cerebras` and `proxima-service-token` only. The build account needs Cloud Run Builder permissions. Run `sh scripts/deploy-cloud.sh PROJECT_ID REGION` from the checkout. It enables Cloud Run’s invoker check, disables anonymous access and scales between zero and one instance. Grant the invoker account `roles/run.invoker` on `proxima-guide` only.
+
+Set `PROXIMA_SERVICE_URL` to the canonical `run.app` service origin in Sites. Store the invoker’s JSON credential under `PROXIMA_CLOUD_INVOKER` and the shared random service token under `PROXIMA_SERVICE_TOKEN` as Site secrets. The edge service exchanges a signed assertion for a short-lived Google ID token. Publish the Site with the new variables and check the signed-in **Runtime connection** panel. The Cerebras key belongs exclusively in the backend secret. [Cloud Run service authentication](https://docs.cloud.google.com/run/docs/authenticating/service-to-service)
 
 ## Ask about a device
 
@@ -29,7 +32,7 @@ The private hosted frontend can connect to the running companion on this compute
 Browser camera or image
    ├─ Local JSFeat corner detection and pyramidal optical flow → overlay
    └─ On Ask: JPEG + frame ID + question + optional scene context
-          → local web service → OpenClaw /v1/responses
+          → owner-authenticated Sites Worker → private cloud service → OpenClaw /v1/responses
           → Cerebras /v1/chat/completions (moonshotai-kimi-k3.1-pro-trial)
           ├─ Answer and optional target → browser
           └─ Documentation request → manufacturer search and text extraction
@@ -40,6 +43,6 @@ The snapshot and tracking baseline use the same pixels. Forward–backward optic
 
 The same `/api/guide` contract accepts an unlabeled image from web or future native clients. Clients can pass back a `contextId` with a follow-up. The companion uses Parallel’s Search MCP to search and read manufacturer pages or PDFs using product and procedure terms. Camera frames go through OpenClaw to Cerebras. Poll `/api/status` for the installed OpenClaw version and gateway readiness.
 
-OpenClaw’s bearer credential and the Cerebras key stay in the local service. Its gateway has a dedicated workspace, disabled agent tools and a single model route. OpenClaw stores local session state in the ignored `.runtime/` directory. The site’s static bundle is in `dist/`.
+Documentation lookups are limited to a maintained manufacturer list, bounded product-model terms and predefined procedure topics. The backend supplies all lookup destinations. Text found inside a photo or manual can still mislead the model’s answer.
 
-Run the contract and geometry checks with `npm test`. Relevant upstream interfaces are documented by [OpenClaw](https://docs.openclaw.ai/gateway/openresponses-http-api), [Cerebras](https://inference-docs.cerebras.ai/api-reference/chat-completions), [JSFeat](https://inspirit.github.io/jsfeat/) and [PDF.js](https://mozilla.github.io/pdf.js/). The reference image is [Jainath Ponnala’s Raspberry Pi photograph](https://unsplash.com/photos/a-close-up-of-a-raspberry-board-on-a-table-BIHgNEaM394). Its credit and the bundled library licenses are included in `dist/`.
+Relevant upstream interfaces are documented by [OpenClaw](https://docs.openclaw.ai/gateway/openresponses-http-api), [Cerebras](https://inference-docs.cerebras.ai/api-reference/chat-completions), [JSFeat](https://inspirit.github.io/jsfeat/) and [PDF.js](https://mozilla.github.io/pdf.js/). The reference image is [Jainath Ponnala’s Raspberry Pi photograph](https://unsplash.com/photos/a-close-up-of-a-raspberry-board-on-a-table-BIHgNEaM394). Its credit and the bundled library licenses are included in `web/`.

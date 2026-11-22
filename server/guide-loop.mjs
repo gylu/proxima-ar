@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { selectExcerpts } from '../dist/manual.js';
+import { selectExcerpts } from '../web/manual.js';
 import { buildTurn, parseTurn, GuideError } from './guidance.mjs';
 import { findManual, lookupRequest } from './manual-search.mjs';
 

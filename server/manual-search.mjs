@@ -1,7 +1,7 @@
 // Only the documentation service receives network requests. Search receives product terms;
 // the photograph, conversation and Cerebras credentials stay on the inference path.
 import { randomUUID } from 'node:crypto';
-import { makeChunks } from '../dist/manual.js';
+import { makeChunks } from '../web/manual.js';
 
 const endpoint = 'https://search.parallel.ai/mcp';
 const protocol = '2025-03-26';
@@ -26,29 +26,71 @@ const aliases = {
   nintendo: ['nintendo.com'],
 };
 const compact = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-const field = (s, n) =>
-  typeof s === 'string' && s.trim().length > 0 && s.length <= n && !/[\r\n\x00-\x1f]/.test(s);
+// Search is the only model-requested external action. The service chooses both hosts and search vocabulary.
+const procedures = [
+  [
+    'power',
+    /power|charg|voltage|current|watt|battery/i,
+    'power supply charging voltage current specifications',
+  ],
+  ['input', /input|switch source/i, 'monitor input source switching menu controls'],
+  ['display', /display|video|monitor|hdmi|screen|brightness/i, 'display setup HDMI screen settings'],
+  ['network', /network|ethernet|wi.?fi|router/i, 'network Ethernet Wi-Fi setup'],
+  ['connections', /connect|plug|port|cable|pair/i, 'ports connectors cables pairing'],
+  ['setup', /setup|install|assembl|initial/i, 'installation setup instructions'],
+  ['controls', /control|button|menu|mode|setting/i, 'front panel buttons menu settings'],
+  ['maintenance', /maintenan|clean|replace|service/i, 'maintenance cleaning replacement instructions'],
+  ['specifications', /specif|size|dimens|compatib/i, 'technical specifications compatibility'],
+  ['troubleshooting', /trouble|error|blink|reset|fault/i, 'troubleshooting indicator lights reset'],
+  ['general', /^general$/i, 'user manual operating instructions'],
+];
+const families = new Set(
+  'air pro max mini plus model a b s se pi compute module zero pico ultra ultrasharp alienware latitude precision inspiron optiplex elitebook spectre pavilion laserjet thinkpad ideapad thinkcentre yoga macbook imac ipad iphone studio galaxy odyssey smart tv vivobook zenbook rog swift aspire predator bravia playstation xbox surface switch oled eos powershot pixma ecotank workforce brother mx master craft ergo light sync'.split(
+    ' ',
+  ),
+);
+const brandNames = { raspberrypi: 'Raspberry Pi', tplink: 'TP-Link', hp: 'HP', lg: 'LG', asus: 'ASUS' };
 export function lookupRequest(raw) {
-  if (!raw || !field(raw.manufacturer, 65) || !field(raw.device, 120) || !field(raw.topic, 160)) return null;
-  const manufacturer = raw.manufacturer.trim();
+  if (
+    !raw ||
+    typeof raw.manufacturer !== 'string' ||
+    typeof raw.device !== 'string' ||
+    typeof raw.topic !== 'string' ||
+    raw.device.length > 80 ||
+    raw.topic.length > 160
+  )
+    return null;
   const brand = compact(
-    manufacturer.replace(/\b(?:incorporated|corporation|electronics|foundation|ltd|inc|corp)\.?$/i, ''),
+    raw.manufacturer.replace(/\b(?:incorporated|corporation|electronics|foundation|ltd|inc|corp)\.?$/i, ''),
   );
-  if (!brand || ['unknown', 'unknownmanufacturer', 'generic'].includes(brand)) return null;
-  let domains = aliases[brand];
-  if (!domains) {
-    const domain = String(raw.domain || '')
-      .toLowerCase()
-      .replace(/^www\./, '');
-    domains = publisherHost(domain, brand) ? [domain] : [];
+  if (!Object.hasOwn(aliases, brand)) return null;
+  const manufacturer = brandNames[brand] || brand[0].toUpperCase() + brand.slice(1);
+  const name = raw.device.trim();
+  if (!/^[A-Za-z0-9 -]+$/.test(name)) return null;
+  let parts = name.split(/\s+/);
+  for (let count = Math.min(3, parts.length); count > 0; count--) {
+    if (compact(parts.slice(0, count).join('')) === brand) {
+      parts = parts.slice(count);
+      break;
+    }
   }
-  return { manufacturer, device: raw.device.trim(), topic: raw.topic.trim(), domains, brand };
+  if (!parts.length || parts.length > 6) return null;
+  let codes = 0;
+  for (const word of parts) {
+    if (families.has(word.toLowerCase())) continue;
+    if (!/^(?=[a-z0-9-]*[0-9])[a-z0-9][a-z0-9-]{0,15}$/i.test(word) || /[0-9]{7,}/.test(word) || ++codes > 2)
+      return null;
+  }
+  const procedure = procedures.find(([id, match]) => raw.topic === id || match.test(raw.topic));
+  if (!procedure) return null;
+  return {
+    manufacturer,
+    device: [manufacturer, ...parts].join(' '),
+    topic: procedure[2],
+    domains: aliases[brand],
+  };
 }
 
-function publisherHost(host, brand) {
-  const root = host.match(/(?:^|\.)([a-z0-9-]+)\.(?:(?:co|com|org|net)\.[a-z]{2}|[a-z]{2,})$/);
-  return brand.length >= 2 && root && compact(root[1]) === brand;
-}
 function sourceURL(raw, plan) {
   try {
     const u = new URL(raw);
@@ -57,9 +99,7 @@ function sourceURL(raw, plan) {
       u.username ||
       u.password ||
       u.port ||
-      !(plan.domains.length
-        ? plan.domains.some((d) => u.hostname === d || u.hostname.endsWith('.' + d))
-        : publisherHost(u.hostname, plan.brand))
+      !plan.domains.some((domain) => u.hostname === domain || u.hostname.endsWith('.' + domain))
     )
       return null;
     u.hash = '';
@@ -165,9 +205,7 @@ export async function findManual(plan, signal) {
     const terms = plan.device + ' ' + plan.topic + ' user guide';
     const results = await search.run('web_search', {
       objective,
-      search_queries: plan.domains.length
-        ? plan.domains.slice(0, 2).map((d) => 'site:' + d + ' ' + terms)
-        : [plan.manufacturer + ' ' + terms],
+      search_queries: plan.domains.slice(0, 2).map((d) => 'site:' + d + ' ' + terms),
     });
     const eligible = candidates(results, plan);
     if (!eligible.length) return [];

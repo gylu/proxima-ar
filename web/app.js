@@ -2,8 +2,6 @@ import { Scene } from './scene.js';
 import { boardManual, readManual, selectExcerpts } from './manual.js';
 
 const $ = (id) => document.getElementById(id);
-const local = ['127.0.0.1', 'localhost'].includes(location.hostname);
-const endpoint = local ? location.origin : 'http://127.0.0.1:4317';
 const logs = [];
 let moveId = null;
 let advanced = location.hash === '#anchors';
@@ -327,7 +325,7 @@ function runtimeLabel() {
 async function checkRuntime() {
   clearTimeout(statusTimer);
   try {
-    const r = await fetch(endpoint + '/api/status', { signal: AbortSignal.timeout(4200), cache: 'no-store' });
+    const r = await fetch('/api/status', { signal: AbortSignal.timeout(60000), cache: 'no-store' });
     if (!r.ok) throw new Error();
     const body = await r.json();
     if (body.model !== 'moonshotai-kimi-k3.1-pro-trial' || typeof body.runtime !== 'string')
@@ -378,7 +376,7 @@ async function ask(event) {
       if (!current()) return;
       if (runtime !== 'ready')
         throw new Error(
-          'Start the local companion on this computer, then open Runtime connection and try again.',
+          'The private cloud guide is unavailable. You can keep working with your photo and retry later.',
         );
     }
     const start = performance.now();
@@ -394,7 +392,7 @@ async function ask(event) {
       question,
       [selectedAnchor()?.label, sceneHistory.at(-1)?.question].filter(Boolean).join(' '),
     );
-    const r = await fetch(endpoint + '/api/guide', {
+    const r = await fetch('/api/guide', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -467,8 +465,7 @@ async function ask(event) {
     if (e.contextId) contextId = e.contextId;
     let description = e.message;
     if (e instanceof TypeError) {
-      description =
-        'The browser could not reach the local service. Open Connection, check the runtime, and retry.';
+      description = 'The browser could not reach the private cloud guide. Check the connection and retry.';
       void checkRuntime();
     } else if (e.name === 'TimeoutError')
       description = 'The request timed out. Capture a fresh frame and try again.';
@@ -533,29 +530,20 @@ function renderConnection() {
     ready:
       'OpenClaw ' +
       harnessVersion +
-      ' is the running harness. It sends the frame and question to Kimi K3.1 Pro on Cerebras. When Kimi needs documentation, the companion searches using the product name and feature, then returns the passages to Kimi.',
-    starting: 'OpenClaw is starting on this computer. This panel will update when the gateway is ready.',
-    key_missing:
-      'The local service is running. Add CEREBRAS_API_KEY to the project’s env/.env file and restart it.',
-    offline:
-      'Start the companion service on this computer. If this is the hosted page, allow local network access when your browser asks.',
-    unknown: 'Connect this page to the companion service on this computer for live visual guidance.',
+      ' runs in the private cloud service. It sends the frame and question to Kimi on Cerebras. The service can look up manufacturer documentation when Kimi needs it.',
+    starting: 'The private cloud service is starting OpenClaw. This panel updates when it is ready.',
+    key_missing: 'The cloud service needs its Cerebras credential.',
+    offline: 'Live answers are unavailable until the private cloud service is connected.',
+    unknown: 'Checking the private cloud service.',
   };
   body.append(node('h3', runtimeLabel()), node('p', info[runtime] || info.offline));
-  if (runtime !== 'ready') body.append(node('code', 'cd proxima-web\nnpm start'));
-  body.append(
-    node(
-      'p',
-      'Camera tracking runs in your browser. The Cerebras key stays with the local service. OpenClaw keeps session data in its private runtime folder.',
-    ),
-  );
+  body.append(node('p', 'Camera tracking runs in your browser. A frame is sent when you ask a question.'));
   const test = button(connectedOnce ? 'Check connection' : 'Connect runtime', 'btn secondary', async () => {
     test.disabled = true;
     test.textContent = 'Checking…';
     await checkRuntime();
   });
   body.append(test);
-  if (!local) body.append(link('Open the local workbench', endpoint));
 }
 function renderManual(message = '') {
   const body = openDialog('manual', 'Field manual');
@@ -891,5 +879,4 @@ window.addEventListener('pageshow', (e) => {
   if (e.persisted) scene.showEmpty();
 });
 scene.showEmpty();
-if (local) void checkRuntime();
-else $('connection-label').textContent = 'Connect runtime';
+void checkRuntime();

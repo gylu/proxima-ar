@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createGuide } from '../server/guide-loop.mjs';
 import { lookupRequest, candidates } from '../server/manual-search.mjs';
 import { GuideError, readFrame } from '../server/guidance.mjs';
-import { Scene } from '../dist/scene.js';
+import { Scene } from '../web/scene.js';
 
 const frame = readFrame({ frameId: 'scene-frame', jpeg: '/9j/AAAA', question: 'How do I switch inputs?' });
 const plan = {
@@ -150,14 +150,14 @@ test('retrieval selects matching models from manufacturer hosts', () => {
     topic: 'display controls',
     domain: 'acme.not-acme.org',
   });
-  assert.deepEqual(
-    candidates(
-      [
-        { url: 'https://support.acme.com/m123', title: 'guide' },
-        { url: 'https://acme.not-acme.org/m123', title: 'manual' },
-      ],
-      independent,
-    ).map((s) => s.url),
-    ['https://support.acme.com/m123'],
-  );
+  assert.equal(independent, null);
+  assert.equal(lookupRequest({ ...plan, device: 'private product notes' }), null);
+  assert.equal(lookupRequest({ ...plan, device: 'Dell 123456789' }), null);
+  const safe = lookupRequest({
+    ...plan,
+    domain: 'unlisted.example',
+    topic: 'Please switch input using private notes',
+  });
+  assert.deepEqual(safe.domains, ['dell.com', 'delltechnologies.com']);
+  assert.equal(safe.topic, 'monitor input source switching menu controls');
 });

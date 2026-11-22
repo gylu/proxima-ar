@@ -1,0 +1,10 @@
+**
+!.gcloudignore
+!.dockerignore
+!Dockerfile
+!package.json
+!package-lock.json
+!server/
+!server/*.mjs
+!web/
+!web/manual.js

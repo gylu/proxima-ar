@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFrame, buildTurn, parseTurn, serviceError } from '../server/guidance.mjs';
-import { locatePoint } from '../dist/tracking.js';
-import { boardManual, makeChunks, selectExcerpts } from '../dist/manual.js';
+import { locatePoint } from '../web/tracking.js';
+import { boardManual, makeChunks, selectExcerpts } from '../web/manual.js';
 
 const anchor = { id: 'display', label: 'Display', x: 0.5, y: 0.6 };
 const frame = {
