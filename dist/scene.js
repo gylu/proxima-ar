@@ -51,6 +51,18 @@ export class Scene {
     this.epoch++;
   }
 
+  showEmpty() {
+    this.loadId++;
+    this.closeSource();
+    this.source = 'empty';
+    this.title = '';
+    this.anchors = [];
+    this.selected = null;
+    this.width = this.height = 0;
+    this.image.removeAttribute('src');
+    this.configureView();
+  }
+
   showReference() {
     this.loadId++;
     this.closeSource();
@@ -66,7 +78,8 @@ export class Scene {
   }
 
   configureView() {
-    this.image.hidden = this.source === 'camera';
+    this.plane.hidden = this.source === 'empty';
+    this.image.hidden = this.source === 'camera' || this.source === 'empty';
     this.video.hidden = this.source !== 'camera';
     this.fit();
     this.onChange();
@@ -75,7 +88,7 @@ export class Scene {
   fit() {
     if (!this.width || !this.height) return;
     const { width, height } = this.screen.getBoundingClientRect();
-    const fit = this.source === 'reference' ? Math.max : Math.min;
+    const fit = this.source === 'reference' && document.body.dataset.view === 'anchors' ? Math.max : Math.min;
     const scale = fit(width / this.width, height / this.height);
     this.plane.style.width = this.width * scale + 'px';
     this.plane.style.height = this.height * scale + 'px';
@@ -83,8 +96,11 @@ export class Scene {
 
   async openImage(file) {
     const ticket = ++this.loadId;
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 20_000_000) {
-      throw new Error('Choose a JPG, PNG or WebP image smaller than 20 MB.');
+    if (
+      file.size > 20_000_000 ||
+      !(file.type.startsWith('image/') || /\.(png|jpe?g|webp|avif|heic|heif|gif)$/i.test(file.name))
+    ) {
+      throw new Error('Choose an image smaller than 20 MB.');
     }
     const url = URL.createObjectURL(file);
     const image = new Image();
@@ -171,8 +187,8 @@ export class Scene {
     const liveTrack = stream.getVideoTracks()[0];
     liveTrack.onended = () => {
       if (this.stream !== stream) return;
-      this.showReference();
-      this.onNotice('The camera disconnected. The reference scene is open.');
+      this.showEmpty();
+      this.onNotice('The camera disconnected. Use the camera again or upload a photo.');
     };
     incoming.onresize = () => {
       if (
@@ -262,9 +278,15 @@ export class Scene {
 
   addAnchor(point, label, source) {
     if (this.anchors.length >= 24) {
-      const removable = this.anchors.find((a) => a.lost);
+      const removable =
+        source === 'kimi'
+          ? (this.anchors.find((a) => a.group === 'Kimi target' && a.lost) ??
+            this.anchors.find((a) => a.group === 'Kimi target'))
+          : this.anchors.find((a) => a.lost);
+      if (!removable && source === 'kimi') return null;
       if (!removable) throw new Error('This scene already has 24 anchors. Start a new scene to add more.');
       this.anchors.splice(this.anchors.indexOf(removable), 1);
+      this.positions.delete(removable.id);
     }
     const a = {
       id: crypto.randomUUID(),

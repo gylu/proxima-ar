@@ -1235,3 +1235,305 @@ dialog::backdrop {
 .screen.positioning .marker {
   cursor: crosshair;
 }
+
+/* The guide and anchor editor share a scene and a single camera stream. */
+.nav-utils {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nav-link {
+  text-decoration: none;
+  white-space: nowrap;
+}
+#empty-view,
+#quick-question-label {
+  display: none;
+}
+[data-empty='true'] #empty-view {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 17px;
+}
+[data-empty='true'] .screen {
+  background-color: #edf2e8;
+  background-image: radial-gradient(#bfccaf 1px, transparent 1px);
+  background-size: 18px 18px;
+  min-height: 250px;
+}
+[data-empty='true'] .hud-tag,
+[data-empty='true'] .screen-corners,
+[data-empty='true'] .view-caption,
+[data-empty='true'] .viewer-head,
+[data-empty='true'] #anchor-hint {
+  display: none !important;
+}
+.capture-symbol {
+  position: relative;
+  color: #435d32;
+  display: grid;
+  place-items: center;
+  width: 70px;
+  height: 56px;
+}
+.capture-symbol .ico {
+  width: 33px;
+  height: 33px;
+  stroke-width: 1.5;
+}
+.capture-symbol b {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  border: solid #6d8856;
+  border-width: 0;
+}
+.capture-symbol b:nth-of-type(1) {
+  left: 0;
+  top: 0;
+  border-width: 2px 0 0 2px;
+}
+.capture-symbol b:nth-of-type(2) {
+  right: 0;
+  top: 0;
+  border-width: 2px 2px 0 0;
+}
+.capture-symbol b:nth-of-type(3) {
+  left: 0;
+  bottom: 0;
+  border-width: 0 0 2px 2px;
+}
+.capture-symbol b:nth-of-type(4) {
+  right: 0;
+  bottom: 0;
+  border-width: 0 2px 2px 0;
+}
+.sample-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: #edf2e8;
+  border: 0;
+  border-radius: 5px;
+  color: #48573f;
+  padding: 3px 7px;
+  font-size: 0.86rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.sample-btn img {
+  width: 25px;
+  height: 21px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+.screen.drop-ready {
+  outline: 3px solid #668e42;
+  outline-offset: -4px;
+}
+#reading-text {
+  white-space: pre-line;
+}
+.answer-sources {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  margin-top: 10px;
+  font-size: 0.84rem;
+}
+.answer-sources a {
+  overflow-wrap: anywhere;
+  text-underline-offset: 2px;
+}
+[data-view='guide'] main {
+  max-width: 960px;
+}
+[data-view='guide'] .page-heading {
+  padding: 34px 0 22px;
+}
+[data-view='guide'] .workbench {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+[data-view='guide'] .workbench .panel {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+[data-view='guide'] .screen {
+  height: clamp(230px, 36vh, 360px);
+  min-height: 0;
+  flex: none;
+  aspect-ratio: auto;
+}
+[data-view='guide'][data-empty='true'] .screen {
+  height: clamp(220px, 30vh, 300px);
+}
+[data-view='guide'] .viewer-head {
+  min-height: 58px;
+  gap: 5px;
+}
+[data-view='guide'] .viewer-head h2 {
+  flex: 1;
+}
+[data-view='guide'] #viewer-controls .btn {
+  padding: 6px 10px;
+  font-size: 0.82rem;
+}
+[data-view='guide'] .guide-head,
+[data-view='guide'] .view-caption,
+[data-view='guide'] .anchor-section,
+[data-view='guide'] #overlay-btn,
+[data-view='guide'] #reference-btn,
+[data-view='guide'] #manual-btn,
+[data-view='guide'] .prompts,
+[data-view='guide'] #input-mode,
+[data-view='guide'] #anchor-hint,
+[data-view='guide'] footer,
+[data-view='guide'] #adjust-btn {
+  display: none !important;
+}
+[data-view='guide'] .guide-content {
+  padding: 18px 20px;
+  gap: 17px;
+}
+[data-view='guide'] #ask-form {
+  order: -1;
+}
+[data-view='guide'] .composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 0;
+  column-gap: 15px;
+  background: white;
+  border: 0;
+}
+[data-view='guide'] #quick-question-label {
+  display: block;
+  grid-column: 1/-1;
+  justify-self: start;
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+[data-view='guide'] .composer textarea {
+  font-size: 1.05rem;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 52px;
+  border: 1px solid var(--line);
+  background: #f9faf7;
+  padding: 7px 10px;
+  border-radius: 7px;
+}
+[data-view='guide'] .composer textarea:focus-visible {
+  outline: 2px solid #779a54;
+  outline-offset: 1px;
+}
+[data-view='guide'] .ask-actions {
+  align-self: stretch;
+  align-items: center;
+}
+[data-view='guide'] .ask {
+  background: #32482c;
+  padding: 11px 17px;
+  font-size: 0.93rem;
+}
+[data-view='guide'] .guide-reading h3 {
+  font-size: 1.14rem;
+}
+[data-view='guide'] .guide-reading p {
+  font-size: 1rem;
+  color: #354130;
+}
+[data-view='guide'] .guide-foot {
+  padding-left: 20px;
+}
+[data-view='guide'] .marker {
+  pointer-events: none;
+}
+[data-view='guide'] .marker-name em {
+  display: none;
+}
+[data-view='guide'] .viewer:fullscreen .screen,
+[data-view='guide'] .viewer.expanded .screen {
+  height: auto;
+  flex: 1;
+}
+@media (max-width: 760px) {
+  .topbar {
+    height: auto;
+  }
+  .nav-shell {
+    min-height: 80px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: 43px 35px;
+    gap: 0;
+    padding-top: 5px;
+  }
+  .nav-utils {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .nav-shell nav {
+    grid-column: 1/-1;
+    grid-row: 2;
+    gap: 20px;
+    align-items: stretch;
+  }
+  .nav-link,
+  .nav-link.active {
+    display: inline-flex;
+    font-size: 0.87rem;
+  }
+  [data-view='guide'] .page-heading {
+    padding: 22px 0 16px;
+  }
+  [data-view='guide'] .guide-content {
+    padding: 13px 14px;
+  }
+  [data-view='guide'] .viewer-head {
+    min-height: 48px;
+    padding-inline: 8px;
+  }
+  [data-view='guide'] .viewer-head h2 {
+    font-size: 0.9rem;
+    gap: 4px;
+  }
+  [data-view='guide'] #viewer-controls .btn {
+    padding: 6px 7px;
+    font-size: 0.76rem;
+  }
+  [data-view='guide'] .ask {
+    font-size: 0.85rem;
+    padding: 8px 10px;
+  }
+  [data-view='guide'] .composer {
+    gap: 5px;
+  }
+  [data-view='guide'] .screen {
+    height: clamp(195px, 32vh, 290px);
+  }
+}
+@media (max-width: 450px) {
+  [data-view='guide'] .viewer-head h2 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+}

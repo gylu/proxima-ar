@@ -6,6 +6,10 @@ const local = ['127.0.0.1', 'localhost'].includes(location.hostname);
 const endpoint = local ? location.origin : 'http://127.0.0.1:4317';
 const logs = [];
 let moveId = null;
+let advanced = location.hash === '#anchors';
+let contextId = null,
+  lastAnswer = null,
+  harnessVersion = '';
 const cardNodes = new Map();
 const markerNodes = new Map();
 let runtime = 'unknown',
@@ -47,11 +51,14 @@ function notice(message = '') {
   $('notice').textContent = message;
   $('notice').hidden = !message;
 }
-function log(kind, title, detail = '', ms = null) {
-  logs.unshift({ kind, title, detail, ms, time: new Date(), scene: scene.title });
+function log(kind, title, detail = '', ms = null, sources = []) {
+  logs.unshift({ kind, title, detail, ms, sources, time: new Date(), scene: scene.title });
   if (logs.length > 40) logs.pop();
 }
 function setReading(source, title, description, issue = false, glyph = 'book-open') {
+  $('reading').hidden = false;
+  $('answer-sources').replaceChildren();
+  $('answer-sources').hidden = true;
   $('reading-source').replaceChildren(icon(glyph), node('span', source));
   $('reading-heading').textContent = title;
   $('reading-text').textContent = description;
@@ -66,7 +73,7 @@ function cancelTurn() {
   setWaiting(false);
 }
 function setWaiting(waiting) {
-  $('ask-btn').disabled = waiting;
+  $('ask-btn').disabled = waiting || scene.source === 'empty';
   $('cancel-btn').hidden = !waiting;
   $('adjust-btn').disabled = waiting;
   $('input-mode').disabled = waiting;
@@ -84,7 +91,31 @@ function anchorCode(i) {
 function selectedAnchor() {
   return scene.anchors.find((a) => a.id === scene.selected);
 }
+function showAnswer(result) {
+  setReading('KIMI · LIVE ANSWER', result.target?.label || 'Answer', result.answer, false, 'scan-eye');
+  const sources = result.sources || [];
+  if (sources.length) {
+    const box = $('answer-sources');
+    box.replaceChildren(node('span', 'Manual consulted'), ...sources.map((s) => link(s.title, s.url)));
+    box.hidden = false;
+  } else if (['no_match', 'unavailable'].includes(result.lookupStatus)) {
+    $('answer-sources').textContent =
+      result.lookupStatus === 'no_match'
+        ? 'A matching manufacturer manual could not be verified.'
+        : 'The manual search service was unavailable.';
+    $('answer-sources').hidden = false;
+  }
+  if (result.timing) {
+    $('latency').textContent = result.timing;
+    $('latency').hidden = false;
+  }
+}
 function referenceReading() {
+  if (!advanced) {
+    if (lastAnswer) showAnswer(lastAnswer);
+    else $('reading').hidden = true;
+    return;
+  }
   const a = selectedAnchor();
   if (!a) {
     setReading(
@@ -106,6 +137,7 @@ function setMoveMode(id = null) {
   $('screen').classList.toggle('positioning', Boolean(id));
 }
 function chooseAnchor(id) {
+  if (!advanced) return;
   setMoveMode();
   const a = scene.anchors.find((a) => a.id === id);
   if (!a) return;
@@ -150,7 +182,7 @@ function renderAnchors() {
   renderMotion();
 }
 function renderMotion() {
-  $('adjust-btn').hidden = scene.source === 'reference' || !selectedAnchor();
+  $('adjust-btn').hidden = !advanced || !selectedAnchor();
   $('markers').hidden = !showOverlays;
   $('overlay-btn').setAttribute('aria-pressed', String(showOverlays));
   const action = showOverlays ? 'Hide anchors' : 'Show anchors';
@@ -164,8 +196,9 @@ function renderMotion() {
       card = cardNodes.get(a.id);
     if (!marker || !card) continue;
     const p = scene.position(a);
-    const selected = scene.selected === a.id;
-    marker.hidden = !p;
+    const selected = advanced ? scene.selected === a.id : lastAnswer?.markerId === a.id;
+    marker.hidden = !p || (!advanced && !selected);
+    marker.tabIndex = advanced ? 0 : -1;
     marker.classList.toggle('active', selected);
     marker.setAttribute('aria-pressed', String(selected));
     card.classList.toggle('active', selected);
@@ -204,9 +237,52 @@ function renderPrompts() {
     }),
   );
 }
+function renderView() {
+  const empty = scene.source === 'empty';
+  document.body.dataset.view = advanced ? 'anchors' : 'guide';
+  document.body.dataset.empty = String(empty);
+  $('page-name').textContent = advanced ? 'Set your own anchors' : 'Visual guide';
+  $('page-description').textContent = advanced
+    ? 'Tap a part in the image to name it and track it.'
+    : 'Show Proxima what you’re looking at, then ask your question.';
+  document.title = $('page-name').textContent + ' · Proxima AR';
+  for (const [id, active] of [
+    ['workspace-nav', !advanced],
+    ['anchors-nav', advanced],
+  ]) {
+    $(id).classList.toggle('active', active);
+    if (active) $(id).setAttribute('aria-current', 'page');
+    else $(id).removeAttribute('aria-current');
+  }
+  $('empty-view').hidden = !empty;
+  const controls = empty ? $('empty-controls') : advanced ? $('heading-controls') : $('viewer-controls');
+  if ($('media-actions').parentElement !== controls) controls.append($('media-actions'));
+  $('view-name').textContent = advanced
+    ? 'Scene view'
+    : scene.source === 'camera'
+      ? 'Live camera'
+      : 'Your photo';
+  $('question').placeholder = advanced ? 'Ask about this scene…' : 'How do I…';
+  $('ask-btn').disabled = Boolean(activeRequest) || empty;
+  if (!activeRequest) referenceReading();
+  renderMotion();
+}
+function switchView() {
+  advanced = location.hash === '#anchors';
+  setMoveMode();
+  if (!advanced) {
+    $('input-mode').value = 'image';
+    showOverlays = true;
+  }
+  renderView();
+  scene.fit();
+}
 function sceneChanged() {
   if (renderEpoch !== scene.epoch) {
+    const hadScene = renderEpoch >= 0 && document.body.dataset.empty === 'false';
     renderEpoch = scene.epoch;
+    contextId = null;
+    lastAnswer = null;
     setMoveMode();
     $('input-mode').value = 'image';
     manualTicket++;
@@ -215,7 +291,7 @@ function sceneChanged() {
     $('manual-name').textContent = manual?.name || 'Attach instructions';
     cancelTurn();
     sceneHistory = [];
-    $('question').value = '';
+    if (hadScene) $('question').value = '';
     notice();
   }
   showOverlays = true;
@@ -230,11 +306,11 @@ function sceneChanged() {
     icon(camera ? 'camera-off' : 'camera'),
     node('span', camera ? 'Stop camera' : 'Use camera'),
   );
-  $('anchor-hint').hidden = reference || scene.anchors.length > 0;
+  $('anchor-hint').hidden = scene.source === 'empty' || scene.anchors.length > 0;
   $('footer-tracking').textContent = reference ? 'Reference coordinates' : 'Still image coordinates';
   renderAnchors();
   renderPrompts();
-  referenceReading();
+  renderView();
 }
 function runtimeLabel() {
   return (
@@ -257,6 +333,7 @@ async function checkRuntime() {
     if (body.model !== 'moonshotai-kimi-k3.1-pro-trial' || typeof body.runtime !== 'string')
       throw new Error();
     runtime = body.runtime;
+    harnessVersion = body.harness === 'OpenClaw' ? body.version : '';
     connectedOnce = true;
   } catch {
     runtime = 'offline';
@@ -277,7 +354,7 @@ async function ask(event) {
     $('question').focus();
     return;
   }
-  if (activeRequest) return;
+  if (activeRequest || scene.source === 'empty') return;
   setMoveMode();
   const controller = new AbortController();
   const ticket = { controller, epoch: scene.epoch };
@@ -285,7 +362,7 @@ async function ask(event) {
   const current = () => activeRequest === ticket && scene.epoch === ticket.epoch;
   setWaiting(true);
   notice();
-  const mapOnly = $('input-mode').value === 'anchors';
+  const mapOnly = advanced && $('input-mode').value === 'anchors';
   setReading(
     'OPENCLAW · CEREBRAS',
     mapOnly ? 'Reading the anchor map…' : 'Reading the frame…',
@@ -301,28 +378,60 @@ async function ask(event) {
       if (!current()) return;
       if (runtime !== 'ready')
         throw new Error(
-          'Start the local runtime on this computer and open Connection to check it. The reference anchors are available now.',
+          'Start the local companion on this computer, then open Runtime connection and try again.',
         );
     }
     const start = performance.now();
-    const frame = scene.capture($('input-mode').value);
+    const frame = scene.capture(mapOnly ? 'anchors' : 'image');
+    if (!advanced) {
+      // Allow unlabelled images in every client. Suggestions from earlier turns can be reused.
+      const generated = new Set(scene.anchors.filter((a) => a.group === 'Kimi target').map((a) => a.id));
+      frame.anchors = frame.anchors.filter((a) => generated.has(a.id));
+      frame.selected = generated.has(frame.selected) ? frame.selected : null;
+    }
     lastExcerpts = selectExcerpts(
-      manual,
+      !advanced && manual === boardManual ? null : manual,
       question,
       [selectedAnchor()?.label, sceneHistory.at(-1)?.question].filter(Boolean).join(' '),
     );
     const r = await fetch(endpoint + '/api/guide', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Proxima-Client': 'workspace' },
-      body: JSON.stringify({ ...frame, question, excerpts: lastExcerpts, history: sceneHistory.slice(-3) }),
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]),
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Proxima-Client': 'workspace',
+        Accept: 'application/x-ndjson',
+      },
+      body: JSON.stringify({
+        ...frame,
+        contextId,
+        question,
+        excerpts: lastExcerpts,
+        history: sceneHistory.slice(-3),
+      }),
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(130000)]),
     });
     if (!current()) return;
-    const result = await r.json();
-    if (!r.ok)
-      throw Object.assign(new Error(result.error || 'The runtime could not complete this question.'), {
-        code: result.code,
-      });
+    const result = await readAnswer(r, (phase, detail) => {
+      if (!current()) return;
+      if (phase === 'searching')
+        setReading(
+          'PROXIMA',
+          'Looking up the manual…',
+          'Checking manufacturer documentation for ' + detail + '.',
+          false,
+          'book-open',
+        );
+      if (phase === 'answering')
+        setReading(
+          'OPENCLAW · CEREBRAS',
+          'Preparing your answer…',
+          detail === 'found'
+            ? 'Kimi is reading the relevant passages.'
+            : 'Kimi is checking what it can answer from the available evidence.',
+          false,
+          'scan-eye',
+        );
+    });
     if (result.frameId !== frame.frameId || !current()) return;
     let target = null;
     if (result.target) {
@@ -332,9 +441,11 @@ async function ask(event) {
     }
     scene.selected = target?.id ?? null;
     if (target) showOverlays = true;
+    lastAnswer = { ...result, markerId: target?.id };
+    contextId = result.contextId || null;
     renderAnchors();
     $('anchor-hint').hidden = scene.source === 'reference' || scene.anchors.length > 0;
-    setReading('KIMI · LIVE ANSWER', target?.label || 'Scene guidance', result.answer, false, 'scan-eye');
+    showAnswer(lastAnswer);
     const locked = target && scene.position(target);
     if (target && !locked)
       notice(
@@ -346,12 +457,14 @@ async function ask(event) {
     $('latency').textContent =
       elapsedText(ms) + ' · ' + (mapOnly ? 'map' : 'frame') + (locked ? ' to overlay' : ' to answer');
     $('latency').hidden = false;
+    lastAnswer.timing = $('latency').textContent;
     sceneHistory.push({ question, answer: result.answer });
     if (sceneHistory.length > 3) sceneHistory.shift();
-    log('Kimi · live', question, result.answer, ms);
+    log('Kimi · live', question, result.answer, ms, result.sources || []);
     if ($('question').value.trim() === question) $('question').value = '';
   } catch (e) {
     if (!current() || controller.signal.aborted) return;
+    if (e.contextId) contextId = e.contextId;
     let description = e.message;
     if (e instanceof TypeError) {
       description =
@@ -375,6 +488,38 @@ async function ask(event) {
   }
 }
 
+async function readAnswer(response, onProgress) {
+  if (!response.ok || !response.headers.get('content-type')?.includes('application/x-ndjson')) {
+    const data = await response.json();
+    if (!response.ok)
+      throw Object.assign(new Error(data.error || 'The question could not be completed.'), {
+        code: data.code,
+        contextId: data.contextId,
+      });
+    return data;
+  }
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let pending = '';
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      pending += value || '';
+      const lines = pending.split('\n');
+      pending = lines.pop();
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const event = JSON.parse(line);
+        if (event.type === 'progress') onProgress(event.phase, event.detail);
+        if (event.type === 'answer') return event.reply;
+        if (event.type === 'error')
+          throw Object.assign(new Error(event.error), { code: event.code, contextId: event.contextId });
+      }
+      if (done) throw new Error('The connection ended before the answer arrived. Please retry.');
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
 function openDialog(kind, title) {
   dialogKind = kind;
   $('dialog-title').textContent = title;
@@ -386,7 +531,9 @@ function renderConnection() {
   const body = openDialog('connection', 'Runtime connection');
   const info = {
     ready:
-      'The local OpenClaw gateway is ready. Kimi K3.1 Pro on Cerebras can inspect one compressed frame or select from the current anchor map. Both modes include relevant manual excerpts and recent turns.',
+      'OpenClaw ' +
+      harnessVersion +
+      ' is the running harness. It sends the frame and question to Kimi K3.1 Pro on Cerebras. When Kimi needs documentation, the companion searches using the product name and feature, then returns the passages to Kimi.',
     starting: 'OpenClaw is starting on this computer. This panel will update when the gateway is ready.',
     key_missing:
       'The local service is running. Add CEREBRAS_API_KEY to the project’s env/.env file and restart it.',
@@ -439,6 +586,8 @@ function renderManual(message = '') {
         cancelTurn();
         manualTicket++;
         manual = null;
+        contextId = null;
+        lastAnswer = null;
         lastExcerpts = [];
         sceneHistory = [];
         $('manual-name').textContent = 'Attach instructions';
@@ -461,6 +610,8 @@ $('manual-file').onchange = async (e) => {
     const next = await readManual(file);
     if (manualTicket !== ticket) return;
     manual = next;
+    contextId = null;
+    lastAnswer = null;
     lastExcerpts = [];
     sceneHistory = [];
     $('manual-name').textContent = manual.name;
@@ -497,6 +648,7 @@ function openLog() {
       node('p', entry.detail),
       node('small', entry.scene + (entry.ms != null ? ' · ' + elapsedText(entry.ms) : '')),
     );
+    for (const source of entry.sources) row.append(link(source.title, source.url));
     body.append(row);
   }
 }
@@ -545,7 +697,7 @@ function about() {
   }
 }
 function pin(e) {
-  if (scene.source === 'reference' || activeRequest || e.target.closest('.marker')) return;
+  if (!advanced || scene.source === 'empty' || activeRequest || e.target.closest('.marker')) return;
   const rect = $('plane').getBoundingClientRect();
   const point = { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
   if (point.x < 0 || point.y < 0 || point.x > 1 || point.y > 1) return;
@@ -624,7 +776,7 @@ $('file').onchange = async (e) => {
 };
 $('camera-btn').onclick = async () => {
   if (scene.source === 'camera') {
-    scene.showReference();
+    scene.showEmpty();
     return;
   }
   if (cameraOpening) return;
@@ -663,7 +815,7 @@ $('adjust-btn').onclick = () => {
 $('plane').addEventListener(
   'click',
   (event) => {
-    if (!moveId) return;
+    if (!advanced || !moveId) return;
     const anchor = scene.anchors.find((a) => a.id === moveId);
     if (!anchor) return;
     event.preventDefault();
@@ -697,10 +849,25 @@ document.addEventListener('keydown', (e) => {
 $('about-btn').onclick = about;
 $('connection-btn').onclick = renderConnection;
 $('log-nav').onclick = openLog;
-$('workspace-nav').onclick = () => {
-  if ($('dialog').open) $('dialog').close();
-  window.scrollTo({ top: 0 });
-};
+window.addEventListener('hashchange', switchView);
+$('sample-btn').onclick = () => scene.showReference();
+const dropArea = $('screen');
+dropArea.addEventListener('dragover', (event) => {
+  event.preventDefault();
+  dropArea.classList.add('drop-ready');
+});
+dropArea.addEventListener('dragleave', () => dropArea.classList.remove('drop-ready'));
+dropArea.addEventListener('drop', async (event) => {
+  event.preventDefault();
+  dropArea.classList.remove('drop-ready');
+  const file = event.dataTransfer.files[0];
+  if (!file) return;
+  try {
+    await scene.openImage(file);
+  } catch (error) {
+    notice(error.message);
+  }
+});
 $('close-dialog').onclick = () => $('dialog').close();
 $('dialog').addEventListener('close', () => {
   dialogKind = '';
@@ -721,8 +888,8 @@ window.addEventListener('pagehide', () => {
   scene.closeSource();
 });
 window.addEventListener('pageshow', (e) => {
-  if (e.persisted) scene.showReference();
+  if (e.persisted) scene.showEmpty();
 });
-scene.showReference();
+scene.showEmpty();
 if (local) void checkRuntime();
 else $('connection-label').textContent = 'Connect runtime';

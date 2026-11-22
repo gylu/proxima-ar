@@ -7,7 +7,9 @@ import { homedir } from 'node:os';
 import { parseEnv } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { MODEL, BASE_URL, GuideError, readFrame, buildTurn, parseTurn, serviceError } from './guidance.mjs';
+import { MODEL, BASE_URL, GuideError, readFrame, serviceError } from './guidance.mjs';
+
+import { createGuide } from './guide-loop.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const runtime = path.join(root, '.runtime');
@@ -190,7 +192,7 @@ async function parseBody(req) {
   }
 }
 
-async function ask(frame, signal) {
+async function runGateway(body, signal) {
   if (gatewayState !== 'ready' && (await getState()) !== 'ready') {
     throw new GuideError(
       503,
@@ -201,12 +203,17 @@ async function ask(frame, signal) {
   const res = await fetch(gateway + '/v1/responses', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-    body: JSON.stringify(buildTurn(frame)),
+    body: JSON.stringify(body),
     signal,
   });
   if (!res.ok) throw serviceError(res.status, (await res.text()).slice(0, 8000));
-  return parseTurn(await res.json(), frame);
+  return res.json();
 }
+
+const ask = createGuide({ runGateway });
+const openclawVersion = JSON.parse(
+  await readFile(path.join(root, 'node_modules/openclaw/package.json'), 'utf8'),
+).version;
 
 const mime = {
   '.html': 'text/html; charset=utf-8',
@@ -247,7 +254,12 @@ const server = http.createServer(async (req, res) => {
       return res.end();
     }
     if (pathname === '/api/status' && req.method === 'GET') {
-      return send(res, 200, { runtime: await getState(), model: MODEL });
+      return send(res, 200, {
+        runtime: await getState(),
+        model: MODEL,
+        harness: 'OpenClaw',
+        version: openclawVersion,
+      });
     }
     if (pathname === '/api/guide' && req.method === 'POST') {
       if (
@@ -267,8 +279,36 @@ const server = http.createServer(async (req, res) => {
         if (!res.writableEnded) aborted.abort();
       });
       try {
-        const reply = await ask(frame, AbortSignal.any([aborted.signal, AbortSignal.timeout(55000)]));
-        send(res, 200, reply);
+        const signal = AbortSignal.any([aborted.signal, AbortSignal.timeout(125000)]);
+        if (!req.headers.accept?.includes('application/x-ndjson')) {
+          send(res, 200, await ask(frame, signal));
+        } else {
+          res.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store' });
+          const write = (event) => {
+            if (!res.destroyed) res.write(JSON.stringify(event) + '\n');
+          };
+          try {
+            write({ type: 'progress', phase: 'reading' });
+            const reply = await ask(frame, signal, (phase, detail) =>
+              write({ type: 'progress', phase, detail }),
+            );
+            write({ type: 'answer', reply });
+          } catch (error) {
+            write({
+              type: 'error',
+              code: error.code || 'unavailable',
+              contextId: error.contextId,
+              error:
+                error instanceof GuideError
+                  ? error.message
+                  : signal.aborted
+                    ? 'The request timed out. Try again.'
+                    : 'The local service could not finish this question.',
+            });
+          } finally {
+            res.end();
+          }
+        }
       } finally {
         inFlight = false;
       }
@@ -292,7 +332,7 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     if (error.code === 'ENOENT') return send(res, 404, { error: 'Missing' });
     if (error instanceof GuideError)
-      return send(res, error.status, { code: error.code, error: error.message });
+      return send(res, error.status, { code: error.code, error: error.message, contextId: error.contextId });
     if (error.name === 'TimeoutError' || error.name === 'AbortError')
       return send(res, 504, {
         code: 'timeout',

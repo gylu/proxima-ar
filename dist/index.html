@@ -8,13 +8,13 @@
       name="description"
       content="Explore hardware with camera-anchored visual guidance from Kimi on Cerebras."
     />
-    <title>Spatial workbench · Proxima AR</title>
+    <title>Visual guide · Proxima AR</title>
     <link rel="icon" href="./assets/proxima.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./styles.css" />
     <script defer src="./vendor/jsfeat.min.js"></script>
     <script type="module" src="./app.js"></script>
   </head>
-  <body>
+  <body data-view="guide" data-empty="true">
     <header class="topbar">
       <div class="nav-shell">
         <a class="brand" href="./" aria-label="Proxima AR workspace"
@@ -22,35 +22,44 @@
             >Proxima<span class="brand-ar">AR</span></span
           ></a
         >
-        <nav aria-label="Workbench navigation">
-          <button class="nav-link active" id="workspace-nav" aria-current="page">
-            <i data-icon="scan-line"></i>Workspace
-          </button>
-          <button class="nav-link" id="log-nav"><i data-icon="history"></i>Session log</button>
+        <nav aria-label="Views">
+          <a class="nav-link active" id="workspace-nav" href="#guide" aria-current="page"
+            ><i data-icon="scan-eye"></i>Visual guide</a
+          >
+          <a class="nav-link" id="anchors-nav" href="#anchors"
+            ><i data-icon="locate-fixed"></i>Set your own anchors</a
+          >
         </nav>
-        <button class="connection" id="connection-btn" title="Open runtime connection details">
-          <span class="status-dot" id="status-dot"></span><span id="connection-label">Connection</span
-          ><i data-icon="sliders-horizontal"></i>
-        </button>
+        <div class="nav-utils">
+          <button class="icon-btn" id="log-nav" aria-label="Session log" title="Session log">
+            <i data-icon="history"></i>
+          </button>
+          <button
+            class="connection"
+            id="connection-btn"
+            aria-label="Runtime connection"
+            title="Runtime connection"
+          >
+            <span class="status-dot" id="status-dot"></span><span id="connection-label">Connection</span
+            ><i data-icon="sliders-horizontal"></i>
+          </button>
+        </div>
       </div>
     </header>
     <main>
       <div class="page-heading">
         <div>
-          <h1>Spatial workbench<span class="heading-period">.</span></h1>
-          <p>Explore hardware with guidance anchored to your view.</p>
+          <h1><span id="page-name">Visual guide</span><span class="heading-period">.</span></h1>
+          <p id="page-description">Show Proxima what you’re looking at, then ask your question.</p>
         </div>
-        <div class="heading-actions">
-          <button class="btn secondary" id="upload-btn"><i data-icon="image-plus"></i>Open image</button>
-          <button class="btn dark" id="camera-btn"><i data-icon="camera"></i><span>Use camera</span></button>
-          <input id="file" type="file" accept="image/jpeg,image/png,image/webp" hidden />
-        </div>
+        <div id="heading-controls"></div>
       </div>
       <p role="status" id="notice" class="notice" hidden></p>
       <div class="workbench">
         <section class="viewer panel" aria-labelledby="viewer-title" id="viewer">
-          <div class="panel-head">
-            <h2 id="viewer-title"><i data-icon="scan"></i>Scene view</h2>
+          <div class="panel-head viewer-head">
+            <h2 id="viewer-title"><i data-icon="scan"></i><span id="view-name">Your view</span></h2>
+            <div id="viewer-controls"></div>
             <div class="view-actions">
               <button id="reference-btn" class="text-btn" hidden>Load reference</button>
               <button
@@ -68,10 +77,28 @@
             </div>
           </div>
           <div class="screen" id="screen">
-            <div class="media-plane" id="plane">
+            <div id="empty-view">
+              <div class="capture-symbol" aria-hidden="true">
+                <i data-icon="camera"></i><b></b><b></b><b></b><b></b>
+              </div>
+              <div id="empty-controls">
+                <div class="heading-actions" id="media-actions">
+                  <button class="btn secondary" id="upload-btn">
+                    <i data-icon="image-plus"></i>Upload photo
+                  </button>
+                  <button class="btn dark" id="camera-btn">
+                    <i data-icon="camera"></i><span>Use camera</span>
+                  </button>
+                  <input id="file" type="file" accept="image/*" hidden />
+                </div>
+              </div>
+              <button type="button" id="sample-btn" class="sample-btn">
+                <img src="./assets/raspberry-pi-4.webp" alt="" width="24" height="20" />Try a sample photo
+              </button>
+            </div>
+            <div class="media-plane" id="plane" hidden>
               <img
                 id="scene-image"
-                src="./assets/raspberry-pi-4.webp"
                 width="1600"
                 height="1067"
                 alt="Raspberry Pi 4 Model B reference board on a graphite work surface"
@@ -104,7 +131,7 @@
             <span class="model-pill">KIMI K3.1 PRO</span>
           </div>
           <div class="guide-content">
-            <div class="guide-reading" aria-live="polite" aria-atomic="true">
+            <div class="guide-reading" id="reading" hidden aria-live="polite" aria-atomic="true">
               <div class="micro reading-source" id="reading-source">
                 <i data-icon="book-open"></i><span>REFERENCE NOTE</span>
               </div>
@@ -112,6 +139,7 @@
               <p id="reading-text">
                 Connect your first monitor to HDMI0, the micro-HDMI socket closest to the USB-C power port.
               </p>
+              <div id="answer-sources" class="answer-sources" hidden></div>
               <span class="latency" id="latency" hidden></span>
               <button class="text-btn adjust" id="adjust-btn" type="button" hidden>Reposition anchor</button>
             </div>
@@ -129,12 +157,8 @@
             <form id="ask-form">
               <label class="sr-only" for="question">Question about the current frame</label>
               <div class="composer">
-                <textarea
-                  id="question"
-                  rows="2"
-                  maxlength="600"
-                  placeholder="Ask about this frame…"
-                ></textarea>
+                <label for="question" id="quick-question-label">Your question</label>
+                <textarea id="question" rows="2" maxlength="600" placeholder="How do I…"></textarea>
                 <div class="ask-actions">
                   <select
                     id="input-mode"
